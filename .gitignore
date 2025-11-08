@@ -1,0 +1,29 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Environment
+.env
+.env.local
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+
+# Examples output
+examples/*/output/
