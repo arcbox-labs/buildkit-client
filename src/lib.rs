@@ -63,6 +63,7 @@ pub mod builder;
 pub mod client;
 pub mod progress;
 pub mod solve;
+pub mod session;
 
 // Re-export main types
 pub use builder::{BuildConfig, DockerfileSource, Platform, RegistryAuth};

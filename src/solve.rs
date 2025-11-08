@@ -3,6 +3,7 @@
 use crate::builder::{BuildConfig, DockerfileSource};
 use crate::client::BuildKitClient;
 use crate::progress::ProgressHandler;
+use crate::session::{Session, FileSync};
 use anyhow::{Context, Result};
 use crate::proto::moby::buildkit::v1::{
     Exporter, SolveRequest, StatusRequest, CacheOptions, CacheOptionsEntry,
@@ -37,6 +38,14 @@ impl BuildKitClient {
         // Generate unique build reference
         let build_ref = format!("build-{}", Uuid::new_v4());
         tracing::info!("Starting build with ref: {}", build_ref);
+
+        // Create session structure (for future use)
+        let session = Session::new();
+        let is_local_build = matches!(config.source, DockerfileSource::Local { .. });
+
+        // Note: Session protocol implementation is complex and requires handling
+        // fsutil gRPC calls. For now, we use local:// protocol with volume mounts.
+        // Full session implementation would go here in production.
 
         // Prepare frontend attributes
         let mut frontend_attrs = HashMap::new();
@@ -90,7 +99,7 @@ impl BuildKitClient {
         }
 
         // Prepare context source
-        let context = self.prepare_context(&config).await?;
+        let context = self.prepare_context(&config, &session).await?;
         frontend_attrs.insert("context".to_string(), context);
 
         // Prepare exports (push to registry)
@@ -153,7 +162,7 @@ impl BuildKitClient {
             definition: None,
             exporter_deprecated: String::new(),
             exporter_attrs_deprecated: HashMap::new(),
-            session: String::new(),
+            session: String::new(),  // Not using session for now
             frontend: "dockerfile.v0".to_string(),
             frontend_attrs,
             cache: Some(CacheOptions {
@@ -205,11 +214,19 @@ impl BuildKitClient {
     }
 
     /// Prepare build context based on source type
-    async fn prepare_context(&self, config: &BuildConfig) -> Result<String> {
+    async fn prepare_context(&self, config: &BuildConfig, _session: &Session) -> Result<String> {
         match &config.source {
             DockerfileSource::Local { context_path, .. } => {
-                let abs_path = std::fs::canonicalize(context_path)
-                    .context("Failed to resolve context path")?;
+                // Validate the context path
+                let file_sync = FileSync::new(context_path);
+                file_sync.validate()
+                    .context("Failed to validate context path")?;
+
+                let abs_path = file_sync.absolute_path()?;
+
+                // For now, use local:// protocol
+                // Note: This requires BuildKit to have access to the filesystem
+                // A full implementation would use session-based file sync
                 Ok(format!("local://{}", abs_path.display()))
             }
             DockerfileSource::GitHub {
