@@ -27,7 +27,3 @@
 
 # Examples output
 examples/*/output/
-
-# Proto files (managed by buf)
-proto/
-

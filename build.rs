@@ -108,10 +108,11 @@ impl ProtoConfig {
         let buildkit_ref = env::var("BUILDKIT_REF").unwrap_or_else(|_| DEFAULT_BUILDKIT_REF.to_string());
         let googleapis_repo = env::var("GOOGLEAPIS_REPO").unwrap_or_else(|_| DEFAULT_GOOGLEAPIS_REPO.to_string());
         let googleapis_ref = env::var("GOOGLEAPIS_REF").unwrap_or_else(|_| DEFAULT_GOOGLEAPIS_REF.to_string());
-        let proto_dir_name = env::var("PROTO_DIR").unwrap_or_else(|_| DEFAULT_PROTO_DIR.to_string());
         let force_rebuild = env::var("PROTO_REBUILD").unwrap_or_else(|_| DEFAULT_PROTO_REBUILD.to_string()) == "true";
 
-        let proto_dir = env::current_dir()?.join(proto_dir_name);
+        // Use OUT_DIR for proto files instead of source directory
+        let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+        let proto_dir = out_dir.join("proto");
         let fetch_mode = FetchMode::from_env();
 
         Ok(ProtoConfig {
@@ -605,6 +606,7 @@ fn print_summary(config: &ProtoConfig, stats: &FetchStats) {
 /// Compile proto files using tonic-build
 fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
+    let proto_dir = out_dir.join("proto");
 
     println!("\nCompiling proto files with tonic-build...");
 
@@ -617,19 +619,14 @@ fn compile_protos() -> Result<(), Box<dyn std::error::Error>> {
         .extern_path(".google.protobuf", "::prost_types")
         .compile_protos(
             &[
-                "proto/github.com/moby/buildkit/api/services/control/control.proto",
-                "proto/github.com/moby/buildkit/session/filesync/filesync.proto",
-                "proto/github.com/moby/buildkit/session/auth/auth.proto",
+                proto_dir.join("github.com/moby/buildkit/api/services/control/control.proto"),
+                proto_dir.join("github.com/moby/buildkit/session/filesync/filesync.proto"),
+                proto_dir.join("github.com/moby/buildkit/session/auth/auth.proto"),
             ],
-            &["proto"], // Include path
+            &[&proto_dir], // Include path
         )?;
 
     println!("✓ Proto compilation completed successfully");
-
-    // Add cargo rerun triggers
-    println!("cargo:rerun-if-changed=proto/github.com/moby/buildkit/api/");
-    println!("cargo:rerun-if-changed=proto/github.com/moby/buildkit/session/");
-    println!("cargo:rerun-if-changed=build.rs");
 
     Ok(())
 }
