@@ -15,10 +15,22 @@ pub mod moby {
             }
         }
     }
+
+    pub mod filesync {
+        pub mod v1 {
+            tonic::include_proto!("moby.filesync.v1");
+        }
+    }
 }
 
 pub mod pb {
     tonic::include_proto!("pb");
+}
+
+pub mod fsutil {
+    pub mod types {
+        tonic::include_proto!("fsutil.types");
+    }
 }
 
 pub mod google {

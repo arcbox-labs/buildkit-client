@@ -27,3 +27,9 @@
 
 # Examples output
 examples/*/output/
+
+# Proto files (managed by buf)
+/proto/
+.buf/
+proto/.buildkit/
+proto/.googleapis/

@@ -16,9 +16,19 @@
 
 - Rust 1.70+
 - Docker 或 BuildKit daemon
-- (可选) buf - 用于管理 protobuf 文件
+- Git（用于拉取 proto 文件）
 
 ## 快速开始
+
+### 0. 初始化 Proto 文件
+
+首次使用需要拉取 protobuf 定义文件：
+
+```bash
+./scripts/init-proto.sh
+```
+
+> 详细说明请查看 [PROTO_SETUP.md](./PROTO_SETUP.md)
 
 ### 1. 启动 BuildKit 和 Registry
 
@@ -287,6 +297,14 @@ services:
 如果遇到 protobuf 编译错误：
 
 ```bash
+# 清理 proto 文件并重新初始化
+make proto-clean
+make proto-init
+
+# 或者手动执行
+rm -rf proto
+./scripts/init-proto.sh
+
 # 清理并重新编译
 cargo clean
 cargo build
@@ -294,20 +312,35 @@ cargo build
 
 ## 开发
 
-### 更新 Protobuf 定义
+### 使用 Makefile
+
+项目提供了 Makefile 简化常用操作：
 
 ```bash
-# 从 buildkit 仓库更新 proto 文件
-cd /tmp
-git clone https://github.com/moby/buildkit.git
-cp -r buildkit/api proto/
-cp -r buildkit/solver proto/
-cp -r buildkit/sourcepolicy proto/
-cp -r buildkit/frontend proto/
+make help          # 显示所有可用命令
+make init          # 初始化项目（拉取 proto 和构建）
+make build         # 构建项目
+make test          # 运行测试
+make up            # 启动 docker-compose
+make down          # 停止 docker-compose
+make health        # 检查 BuildKit 健康状态
+```
 
-# 从 googleapis 更新
-git clone https://github.com/googleapis/googleapis.git
-cp googleapis/google/rpc/*.proto proto/google/rpc/
+### 更新 Protobuf 定义
+
+Proto 文件通过脚本自动管理，更新步骤：
+
+```bash
+# 方法 1: 使用 Makefile
+make proto-clean
+make proto-init
+
+# 方法 2: 手动执行
+rm -rf proto
+./scripts/init-proto.sh
+
+# 重新构建
+cargo build
 ```
 
 ### 运行测试

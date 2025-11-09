@@ -39,13 +39,32 @@ impl BuildKitClient {
         let build_ref = format!("build-{}", Uuid::new_v4());
         tracing::info!("Starting build with ref: {}", build_ref);
 
-        // Create session structure (for future use)
-        let session = Session::new();
-        let is_local_build = matches!(config.source, DockerfileSource::Local { .. });
+        // Create and start session
+        let mut session = Session::new();
 
-        // Note: Session protocol implementation is complex and requires handling
-        // fsutil gRPC calls. For now, we use local:// protocol with volume mounts.
-        // Full session implementation would go here in production.
+        // Add file sync for local builds
+        if let DockerfileSource::Local { context_path, .. } = &config.source {
+            let abs_path = std::fs::canonicalize(context_path)
+                .context("Failed to resolve context path")?;
+            session.add_file_sync(abs_path).await;
+        }
+
+        // Add auth for registry authentication
+        if let Some(ref registry_auth) = config.registry_auth {
+            let mut auth = crate::session::AuthServer::new();
+            auth.add_registry(crate::session::RegistryAuthConfig {
+                host: registry_auth.host.clone(),
+                username: registry_auth.username.clone(),
+                password: registry_auth.password.clone(),
+            });
+            session.add_auth(auth).await;
+        }
+
+        // Start the session by connecting to BuildKit
+        session.start(self.control().clone()).await
+            .context("Failed to start session")?;
+
+        tracing::info!("Session started: {}", session.get_id());
 
         // Prepare frontend attributes
         let mut frontend_attrs = HashMap::new();
@@ -156,13 +175,13 @@ impl BuildKitClient {
             })
             .collect();
 
-        // Create solve request
+        // Create solve request with session
         let request = SolveRequest {
             r#ref: build_ref.clone(),
             definition: None,
             exporter_deprecated: String::new(),
             exporter_attrs_deprecated: HashMap::new(),
-            session: String::new(),  // Not using session for now
+            session: session.get_id(),  // Use session ID
             frontend: "dockerfile.v0".to_string(),
             frontend_attrs,
             cache: Some(CacheOptions {
@@ -183,9 +202,26 @@ impl BuildKitClient {
 
         // Start the build
         tracing::info!("Sending solve request to buildkit");
+
+        // Create request with session metadata headers
+        let mut grpc_request = tonic::Request::new(request);
+        let metadata = grpc_request.metadata_mut();
+
+        // Add session metadata headers
+        for (key, values) in session.metadata() {
+            if let Ok(k) = key.parse::<tonic::metadata::MetadataKey<tonic::metadata::Ascii>>() {
+                // Add each value for the key (supports multi-value headers)
+                for value in values {
+                    if let Ok(v) = value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+                        metadata.append(k.clone(), v);
+                    }
+                }
+            }
+        }
+
         let response = self
             .control()
-            .solve(request)
+            .solve(grpc_request)
             .await
             .context("Failed to execute solve")?;
 
@@ -214,7 +250,7 @@ impl BuildKitClient {
     }
 
     /// Prepare build context based on source type
-    async fn prepare_context(&self, config: &BuildConfig, _session: &Session) -> Result<String> {
+    async fn prepare_context(&self, config: &BuildConfig, session: &Session) -> Result<String> {
         match &config.source {
             DockerfileSource::Local { context_path, .. } => {
                 // Validate the context path
@@ -222,12 +258,9 @@ impl BuildKitClient {
                 file_sync.validate()
                     .context("Failed to validate context path")?;
 
-                let abs_path = file_sync.absolute_path()?;
-
-                // For now, use local:// protocol
-                // Note: This requires BuildKit to have access to the filesystem
-                // A full implementation would use session-based file sync
-                Ok(format!("local://{}", abs_path.display()))
+                // Use session-based input
+                // The format is: input:<name> where name references the session
+                Ok(format!("input:{}:context", session.shared_key))
             }
             DockerfileSource::GitHub {
                 repo_url,
