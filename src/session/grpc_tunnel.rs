@@ -94,6 +94,14 @@ impl GrpcTunnel {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
+        // Extract followpaths header (can have multiple values)
+        let followpaths: Vec<String> = req.headers()
+            .get_all("followpaths")
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .collect();
+
         let body = req.into_body();
 
         // Dispatch to appropriate service
@@ -106,7 +114,7 @@ impl GrpcTunnel {
             }
             "/moby.filesync.v1.FileSync/DiffCopy" => {
                 // DiffCopy is a bidirectional streaming RPC - pass the stream
-                self.handle_file_sync_diff_copy_stream(body, respond, dir_name).await
+                self.handle_file_sync_diff_copy_stream(body, respond, dir_name, followpaths).await
             }
             "/moby.filesync.v1.Auth/GetTokenAuthority" => {
                 // Token-based auth not supported - return error to make BuildKit fall back
@@ -219,6 +227,7 @@ impl GrpcTunnel {
         mut request_stream: h2::RecvStream,
         mut respond: SendResponse<Bytes>,
         dir_name: Option<String>,
+        followpaths: Vec<String>,
     ) -> Result<()> {
         use crate::proto::fsutil::types::{Packet, packet::PacketType};
         use prost::Message as ProstMessage;
@@ -227,8 +236,8 @@ impl GrpcTunnel {
         static CALL_COUNTER: AtomicU32 = AtomicU32::new(0);
         let call_id = CALL_COUNTER.fetch_add(1, Ordering::SeqCst);
 
-        tracing::info!("handle_file_sync_diff_copy_stream called (call #{}, dir_name: {:?})", call_id, dir_name);
-        eprintln!("\n========== DiffCopy Call #{} (dir_name: {:?}) ==========", call_id, dir_name);
+        tracing::info!("handle_file_sync_diff_copy_stream called (call #{}, dir_name: {:?}, followpaths: {:?})", call_id, dir_name, followpaths);
+        eprintln!("\n========== DiffCopy Call #{} (dir_name: {:?}, followpaths: {:?}) ==========", call_id, dir_name, followpaths);
 
         let file_sync = match &self.file_sync {
             Some(fs) => fs,
@@ -267,16 +276,25 @@ impl GrpcTunnel {
         let send_only_dockerfile = dir_name.as_deref() == Some("dockerfile");
 
         if send_only_dockerfile {
-            // BuildKit only wants the Dockerfile - send just that file
-            eprintln!("BuildKit requested 'dockerfile' - sending only Dockerfile");
+            // BuildKit only wants the Dockerfile - determine actual filename from followpaths
+            // When using custom dockerfile, BuildKit sends followpaths like ["Custom.Dockerfile", ...]
+            let dockerfile_name = if !followpaths.is_empty() && followpaths[0].ends_with(".Dockerfile") {
+                // Custom dockerfile name
+                followpaths[0].clone()
+            } else {
+                // Default to "Dockerfile"
+                "Dockerfile".to_string()
+            };
+
+            eprintln!("BuildKit requested 'dockerfile' - sending only {}", dockerfile_name);
             use crate::proto::fsutil::types::{Packet, packet::PacketType, Stat};
 
-            let dockerfile_path = root_path.join("Dockerfile");
+            let dockerfile_path = root_path.join(&dockerfile_name);
             if !dockerfile_path.exists() {
-                tracing::error!("Dockerfile not found at {}", dockerfile_path.display());
+                tracing::error!("{} not found at {}", dockerfile_name, dockerfile_path.display());
                 let trailers = Response::builder()
                     .header("grpc-status", "2")
-                    .header("grpc-message", "Dockerfile not found")
+                    .header("grpc-message", format!("{} not found", dockerfile_name))
                     .body(())
                     .unwrap();
                 let _ = send_stream.send_trailers(trailers.headers().clone());
@@ -286,7 +304,7 @@ impl GrpcTunnel {
             let metadata = tokio::fs::metadata(&dockerfile_path).await?;
 
             let mut stat = Stat {
-                path: "Dockerfile".to_string(),
+                path: dockerfile_name.clone(),
                 mode: 0,
                 uid: 0,
                 gid: 0,
@@ -301,12 +319,13 @@ impl GrpcTunnel {
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                stat.mode = metadata.permissions().mode();
+                let unix_mode = metadata.permissions().mode();
+                stat.mode = Self::unix_mode_to_go_filemode(unix_mode);
             }
 
             #[cfg(not(unix))]
             {
-                stat.mode = 0o100644;  // S_IFREG | 0o644
+                stat.mode = 0o644;  // Regular file in Go FileMode format (just permissions)
             }
 
             let mode = stat.mode;
@@ -317,21 +336,28 @@ impl GrpcTunnel {
                 data: vec![],
             };
 
-            eprintln!("DFS: Sending STAT #0: Dockerfile (FILE, mode: 0o{:o})", mode);
+            eprintln!("DFS: Sending STAT #0: {} (FILE, mode: 0o{:o})", dockerfile_name, mode);
             Self::send_grpc_packet(&mut send_stream, &stat_packet).await?;
 
             // Store in file map
             file_map.insert(0, dockerfile_path);
         } else {
-            // BuildKit wants the full context - send entire tree using depth-first traversal
+            // BuildKit wants the full context - send tree using depth-first traversal
+            // If followpaths is specified, only send those files and their parent directories
             // fsutil requires files in depth-first order with entries sorted alphabetically within each directory
-            eprintln!("BuildKit requested context - sending directory tree");
+            if followpaths.is_empty() {
+                eprintln!("BuildKit requested full context - sending entire directory tree");
+            } else {
+                eprintln!("BuildKit requested filtered context - followpaths: {:?}", followpaths);
+            }
+
             if let Err(e) = Self::send_stat_packets_dfs(
                 root_path.clone(),
                 String::new(),
                 &mut send_stream,
                 &mut file_map,
                 &mut id_counter,
+                if followpaths.is_empty() { None } else { Some(&followpaths) },
             ).await {
                 tracing::error!("Error sending STAT packets: {}", e);
                 let trailers = Response::builder()
@@ -467,20 +493,90 @@ impl GrpcTunnel {
         Ok(())
     }
 
+    /// Convert Unix mode_t format to Go os.FileMode format
+    ///
+    /// Unix mode_t uses bits 14-12 for file type (S_IFDIR=0o040000, S_IFREG=0o100000)
+    /// Go FileMode uses bit 31 for directory (0x80000000), no special bit for regular files
+    fn unix_mode_to_go_filemode(unix_mode: u32) -> u32 {
+        const S_IFMT: u32 = 0o170000;      // File type mask
+        const S_IFDIR: u32 = 0o040000;     // Directory
+        const S_IFREG: u32 = 0o100000;     // Regular file
+        const S_IFLNK: u32 = 0o120000;     // Symbolic link
+        const S_IFIFO: u32 = 0o010000;     // Named pipe
+        const S_IFSOCK: u32 = 0o140000;    // Socket
+        const S_IFCHR: u32 = 0o020000;     // Character device
+        const S_IFBLK: u32 = 0o060000;     // Block device
+
+        const GO_MODE_DIR: u32 = 0x80000000;        // 1 << 31
+        const GO_MODE_SYMLINK: u32 = 0x08000000;    // 1 << 27
+        const GO_MODE_DEVICE: u32 = 0x04000000;     // 1 << 26
+        const GO_MODE_NAMED_PIPE: u32 = 0x02000000; // 1 << 25
+        const GO_MODE_SOCKET: u32 = 0x01000000;     // 1 << 24
+        const GO_MODE_SETUID: u32 = 0x00800000;     // 1 << 23
+        const GO_MODE_SETGID: u32 = 0x00400000;     // 1 << 22
+        const GO_MODE_CHAR_DEVICE: u32 = 0x00200000;// 1 << 21
+        const GO_MODE_STICKY: u32 = 0x00100000;     // 1 << 20
+
+        let file_type = unix_mode & S_IFMT;
+        let permissions = unix_mode & 0o7777;  // rwxrwxrwx + sticky/setuid/setgid
+
+        let mut go_mode = permissions & 0o777;  // Base permissions
+
+        // Convert special permission bits
+        if permissions & 0o4000 != 0 { go_mode |= GO_MODE_SETUID; }
+        if permissions & 0o2000 != 0 { go_mode |= GO_MODE_SETGID; }
+        if permissions & 0o1000 != 0 { go_mode |= GO_MODE_STICKY; }
+
+        // Convert file type bits
+        match file_type {
+            S_IFDIR => go_mode |= GO_MODE_DIR,
+            S_IFLNK => go_mode |= GO_MODE_SYMLINK,
+            S_IFIFO => go_mode |= GO_MODE_NAMED_PIPE,
+            S_IFSOCK => go_mode |= GO_MODE_SOCKET,
+            S_IFCHR => go_mode |= GO_MODE_CHAR_DEVICE | GO_MODE_DEVICE,
+            S_IFBLK => go_mode |= GO_MODE_DEVICE,
+            S_IFREG => {}, // Regular files have no special bit in Go
+            _ => {},
+        }
+
+        go_mode
+    }
+
     /// Send STAT packets using depth-first traversal
     /// This is the correct way to send files to BuildKit's fsutil validator
     /// which requires files in depth-first order with entries sorted alphabetically within each directory
+    ///
+    /// If followpaths is Some, only sends files in the list and their parent directories
     fn send_stat_packets_dfs<'a>(
         path: std::path::PathBuf,
         prefix: String,
         stream: &'a mut h2::SendStream<Bytes>,
         file_map: &'a mut std::collections::HashMap<u32, std::path::PathBuf>,
         id_counter: &'a mut u32,
+        followpaths: Option<&'a Vec<String>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
             use crate::proto::fsutil::types::{Packet, packet::PacketType, Stat};
 
-            tracing::debug!("send_stat_packets_dfs: {} (prefix: {})", path.display(), prefix);
+            tracing::debug!("send_stat_packets_dfs: {} (prefix: {}, followpaths: {:?})", path.display(), prefix, followpaths);
+
+            // Build set of paths to include if followpaths is specified
+            let include_paths = if let Some(paths) = followpaths {
+                let mut set = std::collections::HashSet::new();
+                for p in paths {
+                    set.insert(p.clone());
+                    // Add all parent directories
+                    let mut parent = p.as_str();
+                    while let Some(idx) = parent.rfind('/') {
+                        parent = &parent[..idx];
+                        set.insert(parent.to_string());
+                    }
+                }
+                tracing::debug!("Built include_paths set with {} entries: {:?}", set.len(), set);
+                Some(set)
+            } else {
+                None
+            };
 
             // Read all entries in this directory
             let mut entries = Vec::new();
@@ -506,6 +602,17 @@ impl GrpcTunnel {
                     format!("{}/{}", prefix, name)
                 };
 
+                // Skip if not in include_paths (when filtering is enabled)
+                if let Some(ref paths) = include_paths {
+                    if !paths.contains(&rel_path) {
+                        tracing::debug!("Skipping {} (not in followpaths)", rel_path);
+                        eprintln!("DFS: Skipping {} (not in include_paths)", rel_path);
+                        continue;
+                    } else {
+                        eprintln!("DFS: Including {} (found in include_paths)", rel_path);
+                    }
+                }
+
                 let entry_id = *id_counter;
                 *id_counter += 1;
 
@@ -527,15 +634,17 @@ impl GrpcTunnel {
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    stat.mode = metadata.permissions().mode();
+                    let unix_mode = metadata.permissions().mode();
+                    stat.mode = Self::unix_mode_to_go_filemode(unix_mode);
                 }
 
                 #[cfg(not(unix))]
                 {
+                    // On non-Unix platforms, construct mode in Go FileMode format directly
                     stat.mode = if metadata.is_dir() {
-                        0o040755  // S_IFDIR | 0o755
+                        0x80000000 | 0o755  // GO_MODE_DIR | 0o755
                     } else {
-                        0o100644  // S_IFREG | 0o644
+                        0o644  // Just permissions for regular files
                     };
                 }
 
@@ -563,7 +672,7 @@ impl GrpcTunnel {
 
                 // Recursively process directories
                 if metadata.is_dir() {
-                    Self::send_stat_packets_dfs(entry_path, rel_path, stream, file_map, id_counter).await?;
+                    Self::send_stat_packets_dfs(entry_path, rel_path, stream, file_map, id_counter, followpaths).await?;
                 }
             }
 
