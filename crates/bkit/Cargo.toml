@@ -12,4 +12,4 @@ keywords = { workspace = true }
 categories = { workspace = true }
 
 [dependencies]
-buildkit-client = "0.1.3"
+buildkit-client = { path = "../.." }

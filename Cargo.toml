@@ -1,9 +1,9 @@
 [workspace]
-members = [".", "crates/bkit"]
+members = [".", "crates/bkit", "crates/filemode"]
 resolver = "2"
 
 [workspace.package]
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["AprilNEA <dev@aprilnea.me>"]
 description = "A Rust client library and CLI for interacting with BuildKit via gRPC, implementing the complete BuildKit session protocol"
@@ -46,6 +46,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 
 [dependencies]
+# Internal crates
+filemode = { path = "crates/filemode" }
+
 # gRPC and async runtime
 tonic = "0.12"
 tokio = { version = "1", features = ["full"] }

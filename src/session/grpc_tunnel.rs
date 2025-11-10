@@ -5,6 +5,7 @@
 
 use crate::error::{Error, Result};
 use bytes::Bytes;
+use filemode::{UnixMode, GoFileMode};
 use h2::server::{self, SendResponse};
 use http::{Request, Response, StatusCode};
 use std::pin::Pin;
@@ -320,7 +321,7 @@ impl GrpcTunnel {
             {
                 use std::os::unix::fs::PermissionsExt;
                 let unix_mode = metadata.permissions().mode();
-                stat.mode = Self::unix_mode_to_go_filemode(unix_mode);
+                stat.mode = GoFileMode::from(UnixMode::from(unix_mode)).as_u32();
             }
 
             #[cfg(not(unix))]
@@ -493,55 +494,6 @@ impl GrpcTunnel {
         Ok(())
     }
 
-    /// Convert Unix mode_t format to Go os.FileMode format
-    ///
-    /// Unix mode_t uses bits 14-12 for file type (S_IFDIR=0o040000, S_IFREG=0o100000)
-    /// Go FileMode uses bit 31 for directory (0x80000000), no special bit for regular files
-    fn unix_mode_to_go_filemode(unix_mode: u32) -> u32 {
-        const S_IFMT: u32 = 0o170000;      // File type mask
-        const S_IFDIR: u32 = 0o040000;     // Directory
-        const S_IFREG: u32 = 0o100000;     // Regular file
-        const S_IFLNK: u32 = 0o120000;     // Symbolic link
-        const S_IFIFO: u32 = 0o010000;     // Named pipe
-        const S_IFSOCK: u32 = 0o140000;    // Socket
-        const S_IFCHR: u32 = 0o020000;     // Character device
-        const S_IFBLK: u32 = 0o060000;     // Block device
-
-        const GO_MODE_DIR: u32 = 0x80000000;        // 1 << 31
-        const GO_MODE_SYMLINK: u32 = 0x08000000;    // 1 << 27
-        const GO_MODE_DEVICE: u32 = 0x04000000;     // 1 << 26
-        const GO_MODE_NAMED_PIPE: u32 = 0x02000000; // 1 << 25
-        const GO_MODE_SOCKET: u32 = 0x01000000;     // 1 << 24
-        const GO_MODE_SETUID: u32 = 0x00800000;     // 1 << 23
-        const GO_MODE_SETGID: u32 = 0x00400000;     // 1 << 22
-        const GO_MODE_CHAR_DEVICE: u32 = 0x00200000;// 1 << 21
-        const GO_MODE_STICKY: u32 = 0x00100000;     // 1 << 20
-
-        let file_type = unix_mode & S_IFMT;
-        let permissions = unix_mode & 0o7777;  // rwxrwxrwx + sticky/setuid/setgid
-
-        let mut go_mode = permissions & 0o777;  // Base permissions
-
-        // Convert special permission bits
-        if permissions & 0o4000 != 0 { go_mode |= GO_MODE_SETUID; }
-        if permissions & 0o2000 != 0 { go_mode |= GO_MODE_SETGID; }
-        if permissions & 0o1000 != 0 { go_mode |= GO_MODE_STICKY; }
-
-        // Convert file type bits
-        match file_type {
-            S_IFDIR => go_mode |= GO_MODE_DIR,
-            S_IFLNK => go_mode |= GO_MODE_SYMLINK,
-            S_IFIFO => go_mode |= GO_MODE_NAMED_PIPE,
-            S_IFSOCK => go_mode |= GO_MODE_SOCKET,
-            S_IFCHR => go_mode |= GO_MODE_CHAR_DEVICE | GO_MODE_DEVICE,
-            S_IFBLK => go_mode |= GO_MODE_DEVICE,
-            S_IFREG => {}, // Regular files have no special bit in Go
-            _ => {},
-        }
-
-        go_mode
-    }
-
     /// Send STAT packets using depth-first traversal
     /// This is the correct way to send files to BuildKit's fsutil validator
     /// which requires files in depth-first order with entries sorted alphabetically within each directory
@@ -635,7 +587,7 @@ impl GrpcTunnel {
                 {
                     use std::os::unix::fs::PermissionsExt;
                     let unix_mode = metadata.permissions().mode();
-                    stat.mode = Self::unix_mode_to_go_filemode(unix_mode);
+                    stat.mode = GoFileMode::from(UnixMode::from(unix_mode)).as_u32();
                 }
 
                 #[cfg(not(unix))]
