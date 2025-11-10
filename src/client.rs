@@ -1,6 +1,6 @@
 //! BuildKit gRPC client implementation
 
-use anyhow::{Context, Result};
+use crate::error::{Error, Result};
 use crate::proto::moby::buildkit::v1::control_client::ControlClient;
 use tonic::transport::{Channel, Endpoint};
 
@@ -31,13 +31,16 @@ impl BuildKitClient {
         tracing::info!("Connecting to buildkitd at {}", addr);
 
         let endpoint = Endpoint::from_shared(addr.clone())
-            .context("Invalid buildkit endpoint")?
+            .map_err(|_| Error::InvalidEndpoint(addr.clone()))?
             .timeout(std::time::Duration::from_secs(30));
 
         let channel = endpoint
             .connect()
             .await
-            .context("Failed to connect to buildkitd")?;
+            .map_err(|e| Error::Connection {
+                endpoint: addr,
+                source: e,
+            })?;
 
         let control = ControlClient::new(channel);
 
@@ -58,8 +61,7 @@ impl BuildKitClient {
         let _info = self
             .control
             .info(InfoRequest {})
-            .await
-            .context("Failed to get buildkit info")?;
+            .await?;
 
         tracing::debug!("BuildKit health check passed");
         Ok(())

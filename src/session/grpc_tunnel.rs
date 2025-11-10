@@ -3,7 +3,7 @@
 //! BuildKit establishes an HTTP/2 connection inside the bidirectional session stream.
 //! We use the h2 crate to handle the HTTP/2 server protocol.
 
-use anyhow::{Context, Result};
+use crate::error::{Error, Result};
 use bytes::Bytes;
 use h2::server::{self, SendResponse};
 use http::{Request, Response, StatusCode};
@@ -52,13 +52,13 @@ impl GrpcTunnel {
 
         // Start HTTP/2 server
         let mut h2_conn = server::handshake(stream).await
-            .context("Failed to complete HTTP/2 handshake")?;
+            .map_err(|e| Error::Http2Handshake { source: e })?;
 
         tracing::info!("HTTP/2 server started in session tunnel");
 
         // Accept incoming HTTP/2 streams
         while let Some(result) = h2_conn.accept().await {
-            let (request, respond) = result.context("Failed to accept HTTP/2 stream")?;
+            let (request, respond) = result.map_err(|e| Error::Http2Stream { source: e })?;
             let tunnel_ref = Arc::clone(&tunnel);
 
             tokio::spawn(async move {
@@ -127,7 +127,7 @@ impl GrpcTunnel {
         let mut request_data = Vec::new();
 
         while let Some(chunk) = body.data().await {
-            let chunk = chunk.context("Failed to read request chunk")?;
+            let chunk = chunk.map_err(|e| Error::Http2Stream { source: e })?;
             request_data.extend_from_slice(&chunk);
             let _ = body.flow_control().release_capacity(chunk.len());
         }
@@ -156,7 +156,7 @@ impl GrpcTunnel {
             .unwrap();
 
         let mut send_stream = respond.send_response(response, false)
-            .context("Failed to send response headers")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         // Send response with gRPC framing (5-byte prefix)
         let mut framed = Vec::new();
@@ -165,7 +165,7 @@ impl GrpcTunnel {
         framed.extend_from_slice(&payload);
 
         send_stream.send_data(Bytes::from(framed), false)
-            .context("Failed to send response data")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         // Send trailers with grpc-status
         let trailers = Response::builder()
@@ -174,7 +174,7 @@ impl GrpcTunnel {
             .unwrap();
 
         send_stream.send_trailers(trailers.headers().clone())
-            .context("Failed to send trailers")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         Ok(())
     }
@@ -194,7 +194,7 @@ impl GrpcTunnel {
             .unwrap();
 
         respond.send_response(response, true)
-            .context("Failed to send error response")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         Ok(())
     }
@@ -228,7 +228,7 @@ impl GrpcTunnel {
             .unwrap();
 
         let mut send_stream = respond.send_response(response, false)
-            .context("Failed to send response headers")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         tracing::info!("Sent response headers for DiffCopy");
 
@@ -335,8 +335,7 @@ impl GrpcTunnel {
             id: 0,
             data: vec![],
         };
-        Self::send_grpc_packet(&mut send_stream, &final_stat_packet).await
-            .context("Failed to send final STAT packet")?;
+        Self::send_grpc_packet(&mut send_stream, &final_stat_packet).await?;
 
         tracing::info!("Sent all STAT packets (including final empty STAT), now waiting for REQ packets from BuildKit");
 
@@ -447,7 +446,7 @@ impl GrpcTunnel {
             .unwrap();
 
         send_stream.send_trailers(trailers.headers().clone())
-            .context("Failed to send trailers")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         Ok(())
     }
@@ -462,8 +461,7 @@ impl GrpcTunnel {
         Box::pin(async move {
             tracing::debug!("Collecting entries from: {} (prefix: {})", path.display(), prefix);
 
-            let mut entries = tokio::fs::read_dir(&path).await
-                .with_context(|| format!("Failed to read directory {}", path.display()))?;
+            let mut entries = tokio::fs::read_dir(&path).await?;
 
             while let Some(entry) = entries.next_entry().await? {
                 let file_name = entry.file_name();
@@ -502,7 +500,7 @@ impl GrpcTunnel {
         tracing::info!("Sending file data for: {} (id: {})", path.display(), req_id);
 
         let mut file = tokio::fs::File::open(&path).await
-            .with_context(|| format!("Failed to open file {}", path.display()))?;
+            ?;
 
         let mut buffer = vec![0u8; 32 * 1024]; // 32KB chunks
 
@@ -559,7 +557,7 @@ impl GrpcTunnel {
             packet_type, packet.id, packet.data.len(), framed.len());
 
         stream.send_data(Bytes::from(framed), false)
-            .context("Failed to send packet data")?;
+            .map_err(|e| Error::Http2Stream { source: e })?;
 
         // Give the h2 stream a chance to flush
         tokio::task::yield_now().await;
@@ -573,7 +571,7 @@ impl GrpcTunnel {
         use crate::proto::moby::filesync::v1::{GetTokenAuthorityRequest, GetTokenAuthorityResponse};
 
         let request = GetTokenAuthorityRequest::decode(payload)
-            .context("Failed to decode GetTokenAuthorityRequest")?;
+            .map_err(|e| Error::decode("GetTokenAuthorityRequest", e))?;
 
         tracing::info!("Auth.GetTokenAuthority request for host: {}", request.host);
 
@@ -595,7 +593,7 @@ impl GrpcTunnel {
         use crate::proto::moby::filesync::v1::auth_server::Auth;
 
         let request = CredentialsRequest::decode(payload)
-            .context("Failed to decode CredentialsRequest")?;
+            .map_err(|e| Error::decode("CredentialsRequest", e))?;
 
         tracing::info!("Auth.Credentials request for host: {}", request.host);
 
@@ -657,7 +655,7 @@ impl GrpcTunnel {
         use crate::proto::moby::secrets::v1::GetSecretRequest;
 
         let request = GetSecretRequest::decode(payload)
-            .context("Failed to decode GetSecretRequest")?;
+            .map_err(|e| Error::decode("GetSecretRequest", e))?;
 
         tracing::info!("Secrets.GetSecret request for ID: {}", request.id);
 
@@ -675,12 +673,12 @@ impl GrpcTunnel {
                 }
                 Err(status) => {
                     tracing::warn!("Secret '{}' not found: {}", request.id, status.message());
-                    return Err(anyhow::anyhow!("Secret not found: {}", status.message()));
+                    return Err(Error::SecretNotFound(status.message().to_string()));
                 }
             }
         } else {
             tracing::warn!("Secrets service not configured");
-            return Err(anyhow::anyhow!("Secrets service not configured"));
+            return Err(Error::SecretsNotConfigured);
         };
 
         let mut buf = Vec::new();

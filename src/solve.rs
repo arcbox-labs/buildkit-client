@@ -2,9 +2,9 @@
 
 use crate::builder::{BuildConfig, DockerfileSource};
 use crate::client::BuildKitClient;
+use crate::error::{Error, Result};
 use crate::progress::ProgressHandler;
 use crate::session::{Session, FileSync};
-use anyhow::{Context, Result};
 use crate::proto::moby::buildkit::v1::{
     Exporter, SolveRequest, StatusRequest, CacheOptions, CacheOptionsEntry,
 };
@@ -45,7 +45,10 @@ impl BuildKitClient {
         // Add file sync for local builds
         if let DockerfileSource::Local { context_path, .. } = &config.source {
             let abs_path = std::fs::canonicalize(context_path)
-                .context("Failed to resolve context path")?;
+                .map_err(|e| Error::PathResolution {
+                    path: context_path.clone(),
+                    source: e,
+                })?;
             session.add_file_sync(abs_path).await;
         }
 
@@ -63,14 +66,13 @@ impl BuildKitClient {
         // Add secrets if provided
         if !config.secrets.is_empty() {
             let secrets = crate::session::SecretsServer::from_map(config.secrets.clone())
-                .map_err(|e| anyhow::anyhow!("Failed to create secrets server: {}", e))?;
+                .map_err(|e| Error::secrets(format!("Failed to create secrets server: {}", e)))?;
             session.add_secrets(secrets).await;
             tracing::debug!("Added {} secrets to session", config.secrets.len());
         }
 
         // Start the session by connecting to BuildKit
-        session.start(self.control().clone()).await
-            .context("Failed to start session")?;
+        session.start(self.control().clone()).await?;
 
         tracing::info!("Session started: {}", session.get_id());
 
@@ -251,8 +253,7 @@ impl BuildKitClient {
         let response = self
             .control()
             .solve(grpc_request)
-            .await
-            .context("Failed to execute solve")?;
+            .await?;
 
         let solve_response = response.into_inner();
 
@@ -284,8 +285,7 @@ impl BuildKitClient {
             DockerfileSource::Local { context_path, .. } => {
                 // Validate the context path
                 let file_sync = FileSync::new(context_path);
-                file_sync.validate()
-                    .context("Failed to validate context path")?;
+                file_sync.validate()?;
 
                 // Use session-based input
                 // The format is: input:<name> where name references the session
@@ -333,8 +333,7 @@ impl BuildKitClient {
         let mut stream = self
             .control()
             .status(status_request)
-            .await
-            .context("Failed to get status stream")?
+            .await?
             .into_inner();
 
         handler.on_start()?;

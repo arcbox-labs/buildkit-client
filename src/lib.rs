@@ -87,6 +87,7 @@
 //! ```
 
 pub mod proto;
+pub mod error;
 pub mod builder;
 pub mod client;
 pub mod progress;
@@ -97,3 +98,4 @@ pub mod session;
 pub use builder::{BuildConfig, DockerfileSource, Platform, RegistryAuth};
 pub use client::BuildKitClient;
 pub use solve::BuildResult;
+pub use error::{Error, Result};

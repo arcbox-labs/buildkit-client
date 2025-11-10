@@ -1,6 +1,6 @@
 //! File synchronization protocol implementation for BuildKit sessions
 
-use anyhow::{Context, Result};
+use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
@@ -50,11 +50,12 @@ impl FileSyncServer {
     /// Check if a path is within the allowed root directory
     fn validate_path(&self, rel_path: &str) -> Result<PathBuf> {
         let full_path = self.root_path.join(rel_path);
-        let canonical = std::fs::canonicalize(&full_path)
-            .with_context(|| format!("Failed to canonicalize path: {}", full_path.display()))?;
+        let canonical = std::fs::canonicalize(&full_path)?;
 
         if !canonical.starts_with(&self.root_path) {
-            anyhow::bail!("Path {} is outside root directory", rel_path);
+            return Err(Error::PathOutsideRoot {
+                path: rel_path.to_string(),
+            });
         }
 
         Ok(canonical)
@@ -62,8 +63,7 @@ impl FileSyncServer {
 
     /// Create a stat packet from file metadata
     async fn create_stat_packet(path: &Path, rel_path: &str) -> Result<Packet> {
-        let metadata = fs::metadata(path).await
-            .with_context(|| format!("Failed to get metadata for {}", path.display()))?;
+        let metadata = fs::metadata(path).await?;
 
         let mut stat = Stat {
             path: rel_path.to_string(),
@@ -102,11 +102,10 @@ impl FileSyncServer {
     fn read_directory<'a>(
         path: &'a Path,
         prefix: &'a str,
-        tx: &'a tokio::sync::mpsc::Sender<Result<Packet, Status>>,
+        tx: &'a tokio::sync::mpsc::Sender<std::result::Result<Packet, Status>>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
-            let mut entries = fs::read_dir(path).await
-                .with_context(|| format!("Failed to read directory {}", path.display()))?;
+            let mut entries = fs::read_dir(path).await?;
 
             while let Some(entry) = entries.next_entry().await? {
                 let file_name = entry.file_name();
@@ -121,7 +120,7 @@ impl FileSyncServer {
                 let stat_packet = Self::create_stat_packet(&entry_path, &rel_path).await?;
 
                 tx.send(Ok(stat_packet)).await
-                    .map_err(|_| anyhow::anyhow!("Failed to send stat packet"))?;
+                    .map_err(|_| Error::send_failed("STAT packet", "channel closed"))?;
 
                 // Recursively handle directories
                 if entry_path.is_dir() {
@@ -138,10 +137,9 @@ impl FileSyncServer {
         &self,
         path: &Path,
         id: u32,
-        tx: &tokio::sync::mpsc::Sender<Result<Packet, Status>>,
+        tx: &tokio::sync::mpsc::Sender<std::result::Result<Packet, Status>>,
     ) -> Result<()> {
-        let mut file = fs::File::open(path).await
-            .with_context(|| format!("Failed to open file {}", path.display()))?;
+        let mut file = fs::File::open(path).await?;
 
         let mut buffer = vec![0u8; 1024 * 1024]; // 1MB chunks
 
@@ -159,7 +157,7 @@ impl FileSyncServer {
             };
 
             tx.send(Ok(packet)).await
-                .map_err(|_| anyhow::anyhow!("Failed to send data packet"))?;
+                .map_err(|_| Error::send_failed("DATA packet", "channel closed"))?;
         }
 
         // Send FIN packet
@@ -171,7 +169,7 @@ impl FileSyncServer {
         };
 
         tx.send(Ok(fin_packet)).await
-            .map_err(|_| anyhow::anyhow!("Failed to send FIN packet"))?;
+            .map_err(|_| Error::send_failed("FIN packet", "channel closed"))?;
 
         Ok(())
     }
@@ -179,13 +177,13 @@ impl FileSyncServer {
 
 #[tonic::async_trait]
 impl FileSync for FileSyncServer {
-    type DiffCopyStream = ReceiverStream<Result<Packet, Status>>;
-    type TarStreamStream = ReceiverStream<Result<Packet, Status>>;
+    type DiffCopyStream = ReceiverStream<std::result::Result<Packet, Status>>;
+    type TarStreamStream = ReceiverStream<std::result::Result<Packet, Status>>;
 
     async fn diff_copy(
         &self,
         request: Request<tonic::Streaming<Packet>>,
-    ) -> Result<Response<Self::DiffCopyStream>, Status> {
+    ) -> std::result::Result<Response<Self::DiffCopyStream>, Status> {
         let mut in_stream = request.into_inner();
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let server = self.clone();
@@ -240,7 +238,7 @@ impl FileSync for FileSyncServer {
     async fn tar_stream(
         &self,
         request: Request<tonic::Streaming<Packet>>,
-    ) -> Result<Response<Self::TarStreamStream>, Status> {
+    ) -> std::result::Result<Response<Self::TarStreamStream>, Status> {
         // TarStream is similar to DiffCopy but uses tar format
         // For simplicity, we'll use the same implementation
         self.diff_copy(request).await

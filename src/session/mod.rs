@@ -5,7 +5,7 @@ pub mod auth;
 pub mod secrets;
 pub mod grpc_tunnel;
 
-use anyhow::{Context, Result};
+use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -112,8 +112,7 @@ impl Session {
         // Start the session
         let response = control
             .session(request)
-            .await
-            .context("Failed to start session")?;
+            .await?;
 
         let mut inbound = response.into_inner();
 
@@ -190,10 +189,10 @@ impl Session {
         if let Some(ref tx) = self.tx {
             tx.send(msg)
                 .await
-                .context("Failed to send message to session")?;
+                .map_err(|_| Error::send_failed("BytesMessage", "channel closed"))?;
             Ok(())
         } else {
-            anyhow::bail!("Session not started");
+            Err(Error::SessionNotStarted)
         }
     }
 
@@ -229,10 +228,10 @@ impl FileSync {
     /// Check if path exists and is accessible
     pub fn validate(&self) -> Result<()> {
         if !self.context_path.exists() {
-            anyhow::bail!("Context path does not exist: {}", self.context_path.display());
+            return Err(Error::PathNotFound(self.context_path.clone()));
         }
         if !self.context_path.is_dir() {
-            anyhow::bail!("Context path is not a directory: {}", self.context_path.display());
+            return Err(Error::NotADirectory(self.context_path.clone()));
         }
         Ok(())
     }
@@ -240,6 +239,9 @@ impl FileSync {
     /// Get absolute path
     pub fn absolute_path(&self) -> Result<PathBuf> {
         std::fs::canonicalize(&self.context_path)
-            .context("Failed to resolve absolute path")
+            .map_err(|e| Error::PathResolution {
+                path: self.context_path.clone(),
+                source: e,
+            })
     }
 }

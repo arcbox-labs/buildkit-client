@@ -1,6 +1,6 @@
 //! Build progress monitoring and reporting
 
-use anyhow::Result;
+use crate::error::Result;
 use crate::proto::moby::buildkit::v1::StatusResponse;
 
 /// Trait for handling build progress updates
@@ -111,7 +111,10 @@ impl ProgressHandler for JsonProgressHandler {
             }).collect::<Vec<_>>(),
         });
 
-        println!("{}", serde_json::to_string(&json)?);
+        match serde_json::to_string(&json) {
+            Ok(s) => println!("{}", s),
+            Err(e) => tracing::error!("Failed to serialize progress JSON: {}", e),
+        }
         Ok(())
     }
 
@@ -125,7 +128,10 @@ impl ProgressHandler for JsonProgressHandler {
             "status": "failed",
             "error": error,
         });
-        println!("{}", serde_json::to_string(&json)?);
+        match serde_json::to_string(&json) {
+            Ok(s) => println!("{}", s),
+            Err(e) => tracing::error!("Failed to serialize error JSON: {}", e),
+        }
         Ok(())
     }
 }

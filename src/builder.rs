@@ -1,6 +1,6 @@
 //! Build operations and configuration
 
-use anyhow::Result;
+use crate::error::{Error, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -68,7 +68,7 @@ impl Platform {
                 arch: arch.to_string(),
                 variant: Some(variant.to_string()),
             }),
-            _ => anyhow::bail!("Invalid platform format: {}", s),
+            _ => Err(Error::InvalidPlatform(s.to_string())),
         }
     }
 

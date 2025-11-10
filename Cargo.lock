@@ -179,14 +179,14 @@ checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
 name = "bkit"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
- "buildkit-client 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "buildkit-client 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "buildkit-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -215,9 +215,9 @@ dependencies = [
 
 [[package]]
 name = "buildkit-client"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41951be4d6c13adaa339eaec2268b33493fbfd7c4e76452f5e44f32dbe319497"
+checksum = "2419a1263b9837ab02aec7efa84bfd663dcce25cbac154ab8e4a6ab391cced03"
 dependencies = [
  "anyhow",
  "async-stream",
