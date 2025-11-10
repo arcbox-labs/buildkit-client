@@ -4,6 +4,7 @@ pub mod filesync;
 pub mod auth;
 pub mod secrets;
 pub mod grpc_tunnel;
+mod diffcopy;
 
 use crate::error::{Error, Result};
 use std::collections::HashMap;

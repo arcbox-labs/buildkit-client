@@ -144,8 +144,11 @@ Route to handlers:
 - Must parse frame boundaries from buffered BytesMessage chunks
 - Must add 5-byte prefix when sending responses
 
-#### 3. DiffCopy File Sync (`src/session/grpc_tunnel.rs` lines 168-511)
-Implements fsutil's bidirectional streaming protocol for file transfer:
+#### 3. DiffCopy File Sync (`src/session/diffcopy.rs`)
+Implements fsutil's bidirectional streaming protocol for file transfer.
+
+**Module Organization**: DiffCopy protocol is now in a separate module for better code organization.
+The `grpc_tunnel.rs` delegates DiffCopy requests to this module via `diffcopy::handle_diff_copy_stream()`.
 
 **Server → Client (sending files):**
 1. Walk directory tree recursively
@@ -171,7 +174,7 @@ Implements fsutil's bidirectional streaming protocol for file transfer:
 - IDs are assigned to ALL entries (files + directories), not just files
 - Root directory itself gets NO STAT packet, only its children
 - `file_map` only stores files (not dirs) since only files have data
-- Mode bits must be correct: `0o100644` (files), `0o040755` (dirs)
+- Mode bits must be in **Go FileMode format** - use the `filemode` crate for conversion
 - Empty packets signal EOF, not FIN (FIN is for entire transfer)
 
 **`.dockerignore` Handling:**
@@ -267,7 +270,7 @@ Use `GITHUB_TOKEN` environment variable for custom token.
 - Within each directory, entries must be sorted alphabetically by name
 - Directories must be sent before their contents
 - Use depth-first recursive sending, NOT collect-and-sort approach
-- See `send_stat_packets_dfs` in `grpc_tunnel.rs` for correct implementation
+- See `send_stat_packets_dfs` in `src/session/diffcopy.rs` for correct implementation
 
 ### Build completes but push fails
 - Registry not running: `docker run -d -p 5000:5000 registry:2`
@@ -296,9 +299,14 @@ src/
 ├── solve.rs              # Build execution, prepares SolveRequest with session
 ├── session/
 │   ├── mod.rs            # Session lifecycle & metadata generation
-│   ├── grpc_tunnel.rs    # HTTP/2 server + DiffCopy handler (lines 168-511)
-│   ├── filesync.rs       # FileSyncServer helper (basic, most logic in tunnel)
+│   ├── grpc_tunnel.rs    # HTTP/2 server + request routing (~480 lines)
+│   ├── diffcopy.rs       # DiffCopy protocol implementation (extracted module)
+│   ├── filesync.rs       # FileSyncServer helper (basic, most logic in diffcopy)
 │   └── auth.rs           # AuthServer for registry credentials
+crates/
+├── filemode/             # Unix mode ↔ Go FileMode conversion utility
+│   ├── src/lib.rs        # Type-safe conversion with From/Into traits
+│   └── README.md         # Comprehensive format documentation
 tests/
 ├── common/mod.rs         # Test utilities (create_temp_dir, random_test_tag, etc)
 ├── integration_test.rs   # Full workflow tests including GitHub builds
@@ -318,5 +326,23 @@ tests/
 - Use `RUST_LOG=trace` for gRPC frame-level debugging
 - h2 crate handles HTTP/2 framing; we manage request/response routing
 - Session IDs must be UUID format; shared keys can be any unique string
-- BuildKit requires specific file mode bits on STAT packets
+- BuildKit requires file modes in **Go FileMode format**:
+  - Use `filemode::GoFileMode::from(filemode::UnixMode::from(unix_mode))` for conversion
+  - Or the convenience function `filemode::unix_mode_to_go_filemode(mode)`
+  - Regular files: no type bits, just permissions (e.g., `0o644`)
+  - Directories: `0x80000000 | permissions` (e.g., `0x800001ed` for `0o755`)
 - Tests use `--test-threads=1` to avoid BuildKit contention
+
+## Workspace Structure
+
+This is a Cargo workspace with multiple crates:
+
+- **buildkit-client** (root): Main library and CLI
+- **crates/bkit**: Alternative CLI binary
+- **crates/filemode**: File mode conversion utility (Unix ↔ Go)
+
+When adding dependencies, use workspace inheritance where applicable:
+```toml
+[dependencies]
+filemode = { path = "crates/filemode", version = "0.1" }
+```
