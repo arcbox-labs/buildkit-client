@@ -45,9 +45,12 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 
-[dependencies]
+[workspace.dependencies]
 # Internal crates
-filemode = { path = "crates/filemode" }
+filemode = { path = "crates/filemode", version = "0.1" }
+
+[dependencies]
+filemode = { workspace = true }
 
 # gRPC and async runtime
 tonic = "0.12"
