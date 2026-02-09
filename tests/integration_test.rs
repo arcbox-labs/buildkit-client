@@ -388,6 +388,7 @@ async fn test_large_context() {
 #[tokio::test]
 async fn test_push_to_local_registry() {
     skip_without_buildkit!();
+    skip_without_registry!();
 
     let test_dir = create_temp_dir("registry-push");
     create_test_dockerfile(&test_dir, None);
@@ -397,7 +398,7 @@ async fn test_push_to_local_registry() {
 
     // Generate unique tag with registry prefix
     let image_name = format!("push-test-{}", rand::random::<u32>());
-    let tag = format!("registry:5000/{image_name}:latest");
+    let tag = format!("{}/{image_name}:latest", get_registry_push_host());
 
     let config = BuildConfig::local(&test_dir).tag(&tag);
 
@@ -412,8 +413,10 @@ async fn test_push_to_local_registry() {
     );
 
     // Verify image was pushed to registry
-    let registry_url =
-        format!("http://registry.buildkit-client.orb.local:5000/v2/{image_name}/tags/list");
+    let registry_url = format!(
+        "{}/v2/{image_name}/tags/list",
+        get_registry_http_base_url().trim_end_matches('/')
+    );
     let response = reqwest::get(&registry_url).await;
 
     assert!(response.is_ok(), "Failed to query registry");
@@ -428,6 +431,7 @@ async fn test_push_to_local_registry() {
 #[tokio::test]
 async fn test_push_multiple_tags() {
     skip_without_buildkit!();
+    skip_without_registry!();
 
     let test_dir = create_temp_dir("multi-tag-push");
     create_test_dockerfile(&test_dir, None);
@@ -436,8 +440,9 @@ async fn test_push_multiple_tags() {
     let mut client = BuildKitClient::connect(&addr).await.unwrap();
 
     let image_name = format!("multi-tag-{}", rand::random::<u32>());
-    let tag1 = format!("registry:5000/{image_name}:v1.0");
-    let tag2 = format!("registry:5000/{image_name}:latest");
+    let registry_host = get_registry_push_host();
+    let tag1 = format!("{registry_host}/{image_name}:v1.0");
+    let tag2 = format!("{registry_host}/{image_name}:latest");
 
     let config = BuildConfig::local(&test_dir).tag(&tag1).tag(&tag2);
 
@@ -452,8 +457,10 @@ async fn test_push_multiple_tags() {
     );
 
     // Verify both tags exist
-    let registry_url =
-        format!("http://registry.buildkit-client.orb.local:5000/v2/{image_name}/tags/list");
+    let registry_url = format!(
+        "{}/v2/{image_name}/tags/list",
+        get_registry_http_base_url().trim_end_matches('/')
+    );
     let response = reqwest::get(&registry_url).await.unwrap();
     let body = response.text().await.unwrap();
 

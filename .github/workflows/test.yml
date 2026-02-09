@@ -77,19 +77,47 @@ jobs:
         cargo test --test progress_test --verbose
         cargo test --test proto_test --verbose
 
+    - name: Start local registry
+      run: |
+        docker network create buildkit-ci || true
+        docker run -d \
+          --name registry \
+          --network buildkit-ci \
+          -p 5000:5000 \
+          registry:2
+
+    - name: Wait for registry
+      run: |
+        echo "Waiting for registry to be ready..."
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then
+            echo "Registry is ready"
+            exit 0
+          fi
+          echo "Attempt $i: Registry not ready yet..."
+          sleep 2
+        done
+        echo "Registry failed to become ready"
+        docker logs registry || true
+        exit 1
+
     - name: Start BuildKit
       run: |
         docker run -d --privileged \
+          --network buildkit-ci \
           -p 1234:1234 \
+          -v "$GITHUB_WORKSPACE/.github/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro" \
           --name buildkit \
           moby/buildkit:latest \
+          --config /etc/buildkit/buildkitd.toml \
+          --addr unix:///run/buildkit/buildkitd.sock \
           --addr tcp://0.0.0.0:1234
 
     - name: Wait for BuildKit
       run: |
         echo "Waiting for BuildKit to be ready..."
         for i in $(seq 1 30); do
-          if docker exec buildkit buildctl debug workers >/dev/null 2>&1; then
+          if docker exec buildkit buildctl --addr tcp://127.0.0.1:1234 debug workers >/dev/null 2>&1; then
             echo "BuildKit is ready"
             exit 0
           fi
@@ -97,12 +125,13 @@ jobs:
           sleep 2
         done
         echo "BuildKit failed to become ready"
+        docker logs buildkit || true
         exit 1
 
     - name: Run integration tests
       run: cargo test --test integration_test --verbose -- --test-threads=1
       env:
-        BUILDKIT_ADDR: http://localhost:1234
+        BUILDKIT_ADDR: http://127.0.0.1:1234
         RUST_LOG: info
 
   coverage:
@@ -122,19 +151,47 @@ jobs:
     - name: Install tarpaulin
       run: cargo install cargo-tarpaulin
 
+    - name: Start local registry
+      run: |
+        docker network create buildkit-ci || true
+        docker run -d \
+          --name registry \
+          --network buildkit-ci \
+          -p 5000:5000 \
+          registry:2
+
+    - name: Wait for registry
+      run: |
+        echo "Waiting for registry to be ready..."
+        for i in $(seq 1 30); do
+          if curl -fsS http://localhost:5000/v2/ >/dev/null 2>&1; then
+            echo "Registry is ready"
+            exit 0
+          fi
+          echo "Attempt $i: Registry not ready yet..."
+          sleep 2
+        done
+        echo "Registry failed to become ready"
+        docker logs registry || true
+        exit 1
+
     - name: Start BuildKit
       run: |
         docker run -d --privileged \
+          --network buildkit-ci \
           -p 1234:1234 \
+          -v "$GITHUB_WORKSPACE/.github/buildkitd.toml:/etc/buildkit/buildkitd.toml:ro" \
           --name buildkit \
           moby/buildkit:latest \
+          --config /etc/buildkit/buildkitd.toml \
+          --addr unix:///run/buildkit/buildkitd.sock \
           --addr tcp://0.0.0.0:1234
 
     - name: Wait for BuildKit
       run: |
         echo "Waiting for BuildKit to be ready..."
         for i in $(seq 1 30); do
-          if docker exec buildkit buildctl debug workers >/dev/null 2>&1; then
+          if docker exec buildkit buildctl --addr tcp://127.0.0.1:1234 debug workers >/dev/null 2>&1; then
             echo "BuildKit is ready"
             exit 0
           fi
@@ -142,12 +199,13 @@ jobs:
           sleep 2
         done
         echo "BuildKit failed to become ready"
+        docker logs buildkit || true
         exit 1
 
     - name: Generate coverage
       run: cargo tarpaulin --verbose --all-features --workspace --timeout 300 --out Xml
       env:
-        BUILDKIT_ADDR: http://localhost:1234
+        BUILDKIT_ADDR: http://127.0.0.1:1234
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4

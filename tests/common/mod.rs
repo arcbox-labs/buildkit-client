@@ -10,6 +10,20 @@ pub fn get_buildkit_addr() -> String {
     env::var("BUILDKIT_ADDR").unwrap_or_else(|_| "http://localhost:1234".to_string())
 }
 
+/// Registry host (as seen from buildkitd) used for pushing images in tests.
+///
+/// Default: `registry:5000` (works when BuildKit and the registry run on the same Docker network).
+pub fn get_registry_push_host() -> String {
+    env::var("TEST_REGISTRY_PUSH_HOST").unwrap_or_else(|_| "registry:5000".to_string())
+}
+
+/// Registry base URL (as seen from the test runner) used for verifying pushed images.
+///
+/// Default: `http://localhost:5000`
+pub fn get_registry_http_base_url() -> String {
+    env::var("TEST_REGISTRY_HTTP_BASE_URL").unwrap_or_else(|_| "http://localhost:5000".to_string())
+}
+
 /// Check if BuildKit is available (for integration tests)
 pub async fn is_buildkit_available() -> bool {
     use buildkit_client::BuildKitClient;
@@ -17,6 +31,17 @@ pub async fn is_buildkit_available() -> bool {
     let addr = get_buildkit_addr();
     match BuildKitClient::connect(&addr).await {
         Ok(mut client) => client.health_check().await.is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Check if a local registry is available (for registry push tests).
+pub async fn is_registry_available() -> bool {
+    let base = get_registry_http_base_url();
+    let url = format!("{}/v2/", base.trim_end_matches('/'));
+
+    match reqwest::get(url).await {
+        Ok(resp) => resp.status().is_success(),
         Err(_) => false,
     }
 }
@@ -111,6 +136,21 @@ macro_rules! skip_without_pat_token {
     () => {
         if std::env::var("PAT_TOKEN").is_err() {
             eprintln!("Skipping test: PAT_TOKEN environment variable is not set");
+            return;
+        }
+    };
+}
+
+/// Skip test if the local registry is not available.
+#[macro_export]
+macro_rules! skip_without_registry {
+    () => {
+        if !common::is_registry_available().await {
+            eprintln!(
+                "Skipping test: registry is not available at {}",
+                common::get_registry_http_base_url()
+            );
+            eprintln!("Set TEST_REGISTRY_HTTP_BASE_URL to override");
             return;
         }
     };
