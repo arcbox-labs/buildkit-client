@@ -5,9 +5,9 @@ use std::process::Command;
 
 // Default repository URLs
 const DEFAULT_BUILDKIT_REPO: &str = "https://github.com/moby/buildkit.git";
-const DEFAULT_BUILDKIT_REF: &str = "master";
+const DEFAULT_BUILDKIT_REF: &str = "v0.25.2";
 const DEFAULT_GOOGLEAPIS_REPO: &str = "https://github.com/googleapis/googleapis.git";
-const DEFAULT_GOOGLEAPIS_REF: &str = "master";
+const DEFAULT_GOOGLEAPIS_REF: &str = "725496d32a359a40dd773995d3fda0342b440e15";
 const DEFAULT_PROTO_REBUILD: &str = "false";
 
 // Proto file lists
@@ -20,7 +20,6 @@ const BUILDKIT_PROTOS: &[&str] = &[
     "solver/errdefs/errdefs.proto",
     // Source policy
     "sourcepolicy/pb/policy.proto",
-    "sourcepolicy/policysession/policysession.proto",
     // Frontend
     "frontend/gateway/pb/gateway.proto",
     // Util
@@ -45,11 +44,10 @@ const VENDOR_MAPPINGS: &[(&str, &str)] = &[
         "vendor/github.com/tonistiigi/fsutil/types/wire.proto",
         "github.com/tonistiigi/fsutil/types/wire.proto",
     ),
-    // vtprotobuf files
-    (
-        "vendor/github.com/planetscale/vtprotobuf/vtproto/ext.proto",
-        "github.com/planetscale/vtprotobuf/vtproto/ext.proto",
-    ),
+    // vtprotobuf ext.proto is NOT fetched from vendor - it was removed from BuildKit's
+    // vendor directory. Instead, a minimal stub is always created by create_vtprotobuf_stub().
+    // See: https://github.com/arcbox-labs/buildkit-client/issues/1
+    //
     // containerd files
     (
         "vendor/github.com/containerd/containerd/api/types/descriptor.proto",

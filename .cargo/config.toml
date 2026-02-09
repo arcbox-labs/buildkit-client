@@ -5,7 +5,7 @@ BUILDKIT_REF = "v0.25.2"
 
 # GoogleAPIs repository configuration  
 GOOGLEAPIS_REPO = "https://github.com/googleapis/googleapis.git"
-GOOGLEAPIS_REF = "master"
+GOOGLEAPIS_REF = "725496d32a359a40dd773995d3fda0342b440e15"
 
 # Build configuration
 PROTO_REBUILD = "false"
