@@ -72,6 +72,8 @@ const GOOGLE_RPC_PROTOS: &[&str] = &[
 
 #[derive(Debug, Clone, PartialEq)]
 enum FetchMode {
+    /// Use vendored proto files from the crate's `proto/` directory (no network).
+    Vendored,
     /// Download file content directly from raw.githubusercontent.com
     Content,
     /// Clone the entire repository using git
@@ -79,11 +81,19 @@ enum FetchMode {
 }
 
 impl FetchMode {
-    fn from_env() -> Self {
+    fn from_env(vendored_proto_dir: &Path) -> Self {
         match env::var("PROTO_FETCH_MODE").as_deref() {
+            Ok("vendored") | Ok("vendor") | Ok("local") => FetchMode::Vendored,
+            Ok("content") => FetchMode::Content,
             Ok("clone") => FetchMode::Clone,
-            // Default to content mode for faster builds
-            _ => FetchMode::Content,
+            _ => {
+                // Prefer vendored protos when available to support offline builds (e.g. docs.rs).
+                if vendored_proto_dir.exists() {
+                    FetchMode::Vendored
+                } else {
+                    FetchMode::Content
+                }
+            }
         }
     }
 }
@@ -94,6 +104,7 @@ struct ProtoConfig {
     buildkit_ref: String,
     googleapis_repo: String,
     googleapis_ref: String,
+    vendored_proto_dir: PathBuf,
     proto_dir: PathBuf,
     force_rebuild: bool,
     fetch_mode: FetchMode,
@@ -113,16 +124,19 @@ impl ProtoConfig {
             .unwrap_or_else(|_| DEFAULT_PROTO_REBUILD.to_string())
             == "true";
 
+        let vendored_proto_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("proto");
+
         // Use OUT_DIR for proto files instead of source directory
         let out_dir = PathBuf::from(env::var("OUT_DIR")?);
         let proto_dir = out_dir.join("proto");
-        let fetch_mode = FetchMode::from_env();
+        let fetch_mode = FetchMode::from_env(&vendored_proto_dir);
 
         Ok(ProtoConfig {
             buildkit_repo,
             buildkit_ref,
             googleapis_repo,
             googleapis_ref,
+            vendored_proto_dir,
             proto_dir,
             force_rebuild,
             fetch_mode,
@@ -180,6 +194,7 @@ impl FetchStats {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=.cargo/config.toml");
+    println!("cargo:rerun-if-changed=proto");
 
     let config = ProtoConfig::from_env()?;
 
@@ -199,26 +214,84 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut total_stats = FetchStats::default();
 
-    // Fetch BuildKit protos
-    let stats = fetch_buildkit_protos(&config)?;
-    total_stats.merge(&stats);
+    match config.fetch_mode {
+        FetchMode::Vendored => {
+            let stats = copy_vendored_protos(&config)?;
+            total_stats.merge(&stats);
+        }
+        FetchMode::Content | FetchMode::Clone => {
+            // Fetch BuildKit protos
+            let stats = fetch_buildkit_protos(&config)?;
+            total_stats.merge(&stats);
 
-    // Fetch vendor protos
-    let stats = fetch_vendor_protos(&config)?;
-    total_stats.merge(&stats);
+            // Fetch vendor protos
+            let stats = fetch_vendor_protos(&config)?;
+            total_stats.merge(&stats);
 
-    // Create vtprotobuf stub if needed
-    create_vtprotobuf_stub(&config)?;
+            // Create vtprotobuf stub if needed
+            create_vtprotobuf_stub(&config)?;
 
-    // Fetch Google APIs protos
-    let stats = fetch_googleapis_protos(&config)?;
-    total_stats.merge(&stats);
+            // Fetch Google APIs protos
+            let stats = fetch_googleapis_protos(&config)?;
+            total_stats.merge(&stats);
+        }
+    }
 
     // Print summary
     print_summary(&config, &total_stats);
 
     // Compile proto files with tonic-build
     compile_protos()?;
+
+    Ok(())
+}
+
+/// Copy vendored proto files from the crate's `proto/` directory to `OUT_DIR/proto`.
+fn copy_vendored_protos(config: &ProtoConfig) -> Result<FetchStats, Box<dyn std::error::Error>> {
+    println!("\nUsing vendored proto files (no network)...");
+    println!("  Source: {}", config.vendored_proto_dir.display());
+
+    if !config.vendored_proto_dir.exists() {
+        return Err(format!(
+            "Vendored proto directory not found at {}. Set PROTO_FETCH_MODE=content to download protos instead.",
+            config.vendored_proto_dir.display()
+        )
+        .into());
+    }
+
+    let mut stats = FetchStats::default();
+    copy_proto_tree(&config.vendored_proto_dir, &config.proto_dir, &mut stats)?;
+    Ok(stats)
+}
+
+fn copy_proto_tree(
+    src: &Path,
+    dest: &Path,
+    stats: &mut FetchStats,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if file_type.is_dir() {
+            fs::create_dir_all(&dest_path)?;
+            copy_proto_tree(&src_path, &dest_path, stats)?;
+            continue;
+        }
+
+        if file_type.is_file() {
+            if src_path.extension().and_then(|s| s.to_str()) != Some("proto") {
+                continue;
+            }
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(&src_path, &dest_path)?;
+            stats.copied += 1;
+        }
+    }
 
     Ok(())
 }
@@ -232,6 +305,7 @@ fn fetch_buildkit_protos(config: &ProtoConfig) -> Result<FetchStats, Box<dyn std
     let mut stats = FetchStats::default();
 
     match config.fetch_mode {
+        FetchMode::Vendored => unreachable!("vendored mode does not fetch BuildKit protos"),
         FetchMode::Content => {
             // Direct download mode using reqwest
             for proto in BUILDKIT_PROTOS {
@@ -284,6 +358,7 @@ fn fetch_vendor_protos(config: &ProtoConfig) -> Result<FetchStats, Box<dyn std::
     let mut stats = FetchStats::default();
 
     match config.fetch_mode {
+        FetchMode::Vendored => unreachable!("vendored mode does not fetch vendor protos"),
         FetchMode::Content => {
             // Direct download mode using reqwest
             for (src_path, dest_path) in VENDOR_MAPPINGS {
@@ -336,6 +411,7 @@ fn fetch_googleapis_protos(config: &ProtoConfig) -> Result<FetchStats, Box<dyn s
     let mut stats = FetchStats::default();
 
     match config.fetch_mode {
+        FetchMode::Vendored => unreachable!("vendored mode does not fetch Google APIs protos"),
         FetchMode::Content => {
             // Direct download mode using reqwest
             for proto in GOOGLE_RPC_PROTOS {
