@@ -158,9 +158,7 @@ macro_rules! skip_without_registry {
 
 /// Test integration with environment variables
 pub fn test_integration_with_env() {
-    use dotenv;
-
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
 }
 
 /// Create a .dockerignore file
