@@ -217,6 +217,8 @@ jobs:
     name: Benchmarks
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code
@@ -227,6 +229,31 @@ jobs:
 
     - name: Install protoc
       run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+
+    - name: Ensure gh-pages branch exists
+      run: |
+        set -euo pipefail
+
+        if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+          echo "gh-pages branch exists"
+          exit 0
+        fi
+
+        echo "gh-pages branch missing; initializing..."
+        orig_sha="$(git rev-parse HEAD)"
+
+        git config user.name "github-action-benchmark"
+        git config user.email "github@users.noreply.github.com"
+
+        git checkout --orphan gh-pages
+        # Clear worktree but keep .git so we can push the new branch.
+        find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+        echo "# Benchmark Data" > README.md
+        git add README.md
+        git commit -m "Initialize gh-pages for benchmark data"
+        git push origin gh-pages
+
+        git checkout --detach "$orig_sha"
 
     - name: Run benchmarks
       run: cargo bench --bench build_bench -- --output-format bencher | tee output.txt
