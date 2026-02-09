@@ -256,7 +256,12 @@ jobs:
         git checkout --detach "$orig_sha"
 
     - name: Run benchmarks
-      run: cargo bench --bench build_bench -- --output-format bencher | tee output.txt
+      run: |
+        set -euo pipefail
+        cargo bench --bench build_bench -- --output-format bencher 2>&1 | tee output.txt
+      env:
+        # Prevent ANSI color codes from breaking the benchmark output parser.
+        CARGO_TERM_COLOR: never
 
     - name: Store benchmark result
       uses: benchmark-action/github-action-benchmark@v1
