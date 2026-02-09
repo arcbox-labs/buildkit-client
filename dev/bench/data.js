@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770667668361,
+  "lastUpdate": 1770668138796,
   "repoUrl": "https://github.com/arcbox-labs/buildkit-client",
   "entries": {
     "Benchmark": [
@@ -251,6 +251,96 @@ window.BENCHMARK_DATA = {
             "name": "session_metadata_generation",
             "value": 564,
             "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_local",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_github",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_args_insertion",
+            "value": 182,
+            "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "github@sku.moe",
+            "name": "AprilNEA",
+            "username": "AprilNEA"
+          },
+          "committer": {
+            "email": "github@sku.moe",
+            "name": "AprilNEA",
+            "username": "AprilNEA"
+          },
+          "distinct": true,
+          "id": "b39cfbb96a088695b4ca05912c4a2002b4eddd81",
+          "message": "ci: add release-plz",
+          "timestamp": "2026-02-09T20:10:40Z",
+          "tree_id": "feb3c5586741be12904f1772516ed33223330e25",
+          "url": "https://github.com/arcbox-labs/buildkit-client/commit/b39cfbb96a088695b4ca05912c4a2002b4eddd81"
+        },
+        "date": 1770668138357,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "platform_parse_simple",
+            "value": 67,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_parse_with_variant",
+            "value": 90,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_to_string",
+            "value": 54,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_local",
+            "value": 125,
+            "range": "± 10",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_github",
+            "value": 127,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_full_chain",
+            "value": 540,
+            "range": "± 6",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_creation",
+            "value": 1071,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_metadata_generation",
+            "value": 546,
+            "range": "± 2",
             "unit": "ns/iter"
           },
           {
