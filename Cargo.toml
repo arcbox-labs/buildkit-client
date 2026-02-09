@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.4"
 edition = "2021"
-authors = ["AprilNEA <dev@aprilnea.me>"]
+authors = ["ArcBox Labs <oss@arcbox.dev>", "AprilNEA <dev@aprilnea.me>"]
 description = "A Rust client library and CLI for interacting with BuildKit via gRPC, implementing the complete BuildKit session protocol"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/AprilNEA/buildkit-client"
