@@ -35,7 +35,7 @@ use h2::server::SendResponse;
 use http::{Response, StatusCode};
 use prost::Message as ProstMessage;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use tokio::io::AsyncReadExt;
 
@@ -158,7 +158,7 @@ pub(super) async fn handle_diff_copy_stream(
 
 /// Send only the Dockerfile (when dir_name="dockerfile")
 async fn send_dockerfile_only(
-    root_path: &PathBuf,
+    root_path: &Path,
     followpaths: &[String],
     send_stream: &mut h2::SendStream<Bytes>,
     file_map: &mut HashMap<u32, PathBuf>,
@@ -231,7 +231,7 @@ async fn send_dockerfile_only(
 
 /// Send full directory tree using depth-first traversal
 async fn send_full_context(
-    root_path: &PathBuf,
+    root_path: &Path,
     followpaths: &[String],
     send_stream: &mut h2::SendStream<Bytes>,
     file_map: &mut HashMap<u32, PathBuf>,
@@ -247,7 +247,7 @@ async fn send_full_context(
     }
 
     send_stat_packets_dfs(
-        root_path.clone(),
+        root_path.to_path_buf(),
         String::new(),
         send_stream,
         file_map,
