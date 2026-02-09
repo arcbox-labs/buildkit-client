@@ -640,9 +640,8 @@ mod tests {
 
                 // Spawn a task to keep driving the server h2 connection
                 // so that send_data() calls actually flush to the wire.
-                let drive = tokio::spawn(async move {
-                    while connection.accept().await.is_some() {}
-                });
+                let drive =
+                    tokio::spawn(async move { while connection.accept().await.is_some() {} });
 
                 let outcome = server_logic(&mut send_stream).await;
                 let _ = send_stream.send_data(Bytes::new(), true);
