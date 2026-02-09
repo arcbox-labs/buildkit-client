@@ -1,4 +1,5 @@
 //! Common test utilities and fixtures
+#![allow(dead_code)]
 
 use std::env;
 use std::fs;

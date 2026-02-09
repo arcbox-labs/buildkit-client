@@ -55,7 +55,7 @@ fn bench_build_config_builder_pattern(c: &mut Criterion) {
 fn bench_session_metadata(c: &mut Criterion) {
     use buildkit_client::session::Session;
 
-    c.bench_function("session_creation", |b| b.iter(|| Session::new()));
+    c.bench_function("session_creation", |b| b.iter(Session::new));
 
     c.bench_function("session_metadata_generation", |b| {
         let session = Session::new();
@@ -77,17 +77,11 @@ fn bench_dockerfile_source_match(c: &mut Criterion) {
     };
 
     c.bench_function("dockerfile_source_match_local", |b| {
-        b.iter(|| match black_box(&local_source) {
-            DockerfileSource::Local { .. } => true,
-            _ => false,
-        })
+        b.iter(|| matches!(black_box(&local_source), DockerfileSource::Local { .. }))
     });
 
     c.bench_function("dockerfile_source_match_github", |b| {
-        b.iter(|| match black_box(&github_source) {
-            DockerfileSource::GitHub { .. } => true,
-            _ => false,
-        })
+        b.iter(|| matches!(black_box(&github_source), DockerfileSource::GitHub { .. }))
     });
 }
 

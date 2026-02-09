@@ -88,22 +88,22 @@ fn test_dfs_traversal_order() {
 
     // Check each position
     assert_eq!(order[0].0, "Dockerfile");
-    assert_eq!(order[0].1, false, "Dockerfile should be a file");
+    assert!(!order[0].1, "Dockerfile should be a file");
 
     assert_eq!(order[1].0, "app");
-    assert_eq!(order[1].1, true, "app should be a directory");
+    assert!(order[1].1, "app should be a directory");
 
     assert_eq!(order[2].0, "app/config.txt");
-    assert_eq!(order[2].1, false, "app/config.txt should be a file");
+    assert!(!order[2].1, "app/config.txt should be a file");
 
     assert_eq!(order[3].0, "app/main.txt");
-    assert_eq!(order[3].1, false, "app/main.txt should be a file");
+    assert!(!order[3].1, "app/main.txt should be a file");
 
     assert_eq!(order[4].0, "app/subdir");
-    assert_eq!(order[4].1, true, "app/subdir should be a directory");
+    assert!(order[4].1, "app/subdir should be a directory");
 
     assert_eq!(order[5].0, "app/subdir/data.txt");
-    assert_eq!(order[5].1, false, "app/subdir/data.txt should be a file");
+    assert!(!order[5].1, "app/subdir/data.txt should be a file");
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn test_no_global_sort() {
     let mut order = Vec::new();
     collect_dfs_order(root, String::new(), &mut order);
 
-    let paths: Vec<String> = order.iter().map(|(p, _)| p.clone()).collect();
+    let _paths: Vec<String> = order.iter().map(|(p, _)| p.clone()).collect();
 
     // If we did global sort, it would be:
     // Dockerfile, app, app/config.txt, app/main.txt, app/subdir, app/subdir/data.txt

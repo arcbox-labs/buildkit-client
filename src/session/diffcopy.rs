@@ -610,7 +610,6 @@ mod tests {
     use bytes::BytesMut;
     use http::Request;
     use std::future::Future;
-    use std::path::PathBuf;
     use std::pin::Pin;
     use tokio::io::duplex;
     use tokio::sync::oneshot;
@@ -639,38 +638,47 @@ mod tests {
                     .send_response(response, false)
                     .expect("send response");
 
-                let outcome = server_logic(&mut send_stream).await;
+                // Spawn a task to keep driving the server h2 connection
+                // so that send_data() calls actually flush to the wire.
+                let drive = tokio::spawn(async move {
+                    while connection.accept().await.is_some() {}
+                });
 
+                let outcome = server_logic(&mut send_stream).await;
                 let _ = send_stream.send_data(Bytes::new(), true);
                 let _ = result_tx.send(outcome);
                 let _ = done_rx.await;
+                drive.abort();
             } else {
                 let _ = result_tx.send(Err(Error::other("client did not open request in test")));
             }
         });
 
-        let (mut client, connection) = h2::client::handshake(client_io)
+        let (client, connection) = h2::client::handshake(client_io)
             .await
             .expect("client handshake");
         let client_task = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                panic!("client connection error: {e}");
-            }
+            let _ = connection.await;
         });
 
         let (response_future, _send_stream) = client
+            .clone()
             .ready()
             .await
             .expect("client ready")
             .send_request(Request::builder().uri("/").body(()).unwrap(), true)
             .expect("send request");
+        drop(client);
 
         let response = response_future.await.expect("await response");
 
         let mut body = response.into_body();
         let mut buffer = BytesMut::new();
         while let Some(chunk) = body.data().await {
-            buffer.extend_from_slice(&chunk.expect("body chunk"));
+            let chunk = chunk.expect("body chunk");
+            // Release flow control capacity so the server can send more data.
+            let _ = body.flow_control().release_capacity(chunk.len());
+            buffer.extend_from_slice(&chunk);
         }
 
         let outcome = result_rx
@@ -681,8 +689,8 @@ mod tests {
 
         let _ = done_tx.send(());
 
-        client_task.await.expect("client task");
         server_task.await.expect("server task");
+        client_task.abort();
 
         (packets, outcome)
     }
@@ -717,7 +725,7 @@ mod tests {
         packets
     }
 
-    fn create_test_context(root: &PathBuf) {
+    fn create_test_context(root: &Path) {
         std::fs::write(root.join("Dockerfile"), "FROM alpine\n").unwrap();
 
         let app_dir = root.join("app");

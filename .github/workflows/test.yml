@@ -188,7 +188,8 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     permissions:
-      issues: write
+      checks: write
+      contents: read
     steps:
     - name: Checkout code
       uses: actions/checkout@v4

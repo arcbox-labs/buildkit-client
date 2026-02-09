@@ -1,4 +1,5 @@
 //! Unit tests for session module
+#![allow(unused_must_use)]
 
 use buildkit_client::session::{AuthServer, FileSyncServer, RegistryAuthConfig, Session};
 
