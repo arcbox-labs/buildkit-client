@@ -1,0 +1,39 @@
+name: buildkit-client
+
+services:
+  buildkitd:
+    image: moby/buildkit:latest
+    privileged: true
+    ports:
+      - "1234:1234"
+    command:
+      - --addr
+      - tcp://0.0.0.0:1234
+      - --config
+      - /etc/buildkit/buildkitd.toml
+    volumes:
+      - buildkit-cache:/var/lib/buildkit
+    configs:
+      - source: buildkitd_config
+        target: /etc/buildkit/buildkitd.toml
+
+  # Local Docker Registry for testing
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+    volumes:
+      - registry-data:/data
+
+
+volumes:
+  buildkit-cache:
+  registry-data:
+
+configs:
+  buildkitd_config:
+    content: |
+      [registry."registry:5000"]
+        http = true

@@ -1,0 +1,18 @@
+[package]
+name = "filemode"
+version = "0.1.0"
+edition = { workspace = true }
+authors = { workspace = true }
+description = "Type-safe, zero-cost conversions between Unix mode_t and Go os.FileMode formats"
+license = { workspace = true }
+repository = { workspace = true }
+documentation = "https://docs.rs/filemode"
+readme = "README.md"
+keywords = ["filemode", "unix", "go", "permissions", "buildkit"]
+categories = ["os", "encoding", "filesystem"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
