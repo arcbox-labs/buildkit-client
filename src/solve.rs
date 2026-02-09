@@ -4,10 +4,10 @@ use crate::builder::{BuildConfig, DockerfileSource};
 use crate::client::BuildKitClient;
 use crate::error::{Error, Result};
 use crate::progress::ProgressHandler;
-use crate::session::{Session, FileSync};
 use crate::proto::moby::buildkit::v1::{
-    Exporter, SolveRequest, StatusRequest, CacheOptions, CacheOptionsEntry,
+    CacheOptions, CacheOptionsEntry, Exporter, SolveRequest, StatusRequest,
 };
+use crate::session::{FileSync, Session};
 use std::collections::HashMap;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
@@ -44,8 +44,8 @@ impl BuildKitClient {
 
         // Add file sync for local builds
         if let DockerfileSource::Local { context_path, .. } = &config.source {
-            let abs_path = std::fs::canonicalize(context_path)
-                .map_err(|e| Error::PathResolution {
+            let abs_path =
+                std::fs::canonicalize(context_path).map_err(|e| Error::PathResolution {
                     path: context_path.clone(),
                     source: e,
                 })?;
@@ -81,15 +81,17 @@ impl BuildKitClient {
 
         // Set dockerfile filename
         match &config.source {
-            DockerfileSource::Local { dockerfile_path, .. } => {
+            DockerfileSource::Local {
+                dockerfile_path, ..
+            } => {
                 if let Some(path) = dockerfile_path {
-                    frontend_attrs.insert(
-                        "filename".to_string(),
-                        path.to_string_lossy().to_string(),
-                    );
+                    frontend_attrs
+                        .insert("filename".to_string(), path.to_string_lossy().to_string());
                 }
             }
-            DockerfileSource::GitHub { dockerfile_path, .. } => {
+            DockerfileSource::GitHub {
+                dockerfile_path, ..
+            } => {
                 if let Some(path) = dockerfile_path {
                     frontend_attrs.insert("filename".to_string(), path.clone());
                 }
@@ -145,7 +147,11 @@ impl BuildKitClient {
                 // Extract registry host from the first tag (format: host/image:tag or image:tag)
                 config.tags.first().and_then(|tag| {
                     let parts: Vec<&str> = tag.split('/').collect();
-                    if parts.len() > 1 && (parts[0].contains(':') || parts[0].contains('.') || parts[0] == "localhost") {
+                    if parts.len() > 1
+                        && (parts[0].contains(':')
+                            || parts[0].contains('.')
+                            || parts[0] == "localhost")
+                    {
                         Some(parts[0])
                     } else {
                         None
@@ -203,7 +209,12 @@ impl BuildKitClient {
         // Debug: Log exporter configuration
         tracing::debug!("Configured {} exporters", exports.len());
         for (i, exporter) in exports.iter().enumerate() {
-            tracing::debug!("Exporter {}: type={}, attrs={:?}", i, exporter.r#type, exporter.attrs);
+            tracing::debug!(
+                "Exporter {}: type={}, attrs={:?}",
+                i,
+                exporter.r#type,
+                exporter.attrs
+            );
         }
 
         // Create solve request with session
@@ -212,7 +223,7 @@ impl BuildKitClient {
             definition: None,
             exporter_deprecated: String::new(),
             exporter_attrs_deprecated: HashMap::new(),
-            session: session.get_id(),  // Use session ID
+            session: session.get_id(), // Use session ID
             frontend: "dockerfile.v0".to_string(),
             frontend_attrs,
             cache: Some(CacheOptions {
@@ -243,17 +254,16 @@ impl BuildKitClient {
             if let Ok(k) = key.parse::<tonic::metadata::MetadataKey<tonic::metadata::Ascii>>() {
                 // Add each value for the key (supports multi-value headers)
                 for value in values {
-                    if let Ok(v) = value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+                    if let Ok(v) =
+                        value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()
+                    {
                         metadata.append(k.clone(), v);
                     }
                 }
             }
         }
 
-        let response = self
-            .control()
-            .solve(grpc_request)
-            .await?;
+        let response = self.control().solve(grpc_request).await?;
 
         let solve_response = response.into_inner();
 
@@ -330,11 +340,7 @@ impl BuildKitClient {
             r#ref: build_ref.to_string(),
         };
 
-        let mut stream = self
-            .control()
-            .status(status_request)
-            .await?
-            .into_inner();
+        let mut stream = self.control().status(status_request).await?.into_inner();
 
         handler.on_start()?;
 

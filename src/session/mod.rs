@@ -1,10 +1,10 @@
 //! BuildKit session implementation for file access and streaming
 
-pub mod filesync;
 pub mod auth;
-pub mod secrets;
-pub mod grpc_tunnel;
 mod diffcopy;
+pub mod filesync;
+pub mod grpc_tunnel;
+pub mod secrets;
 
 use crate::error::{Error, Result};
 use std::collections::HashMap;
@@ -14,11 +14,11 @@ use tokio::sync::{mpsc, Mutex};
 use tonic::transport::Channel;
 use uuid::Uuid;
 
-use crate::proto::moby::buildkit::v1::{BytesMessage, control_client::ControlClient};
+use crate::proto::moby::buildkit::v1::{control_client::ControlClient, BytesMessage};
 use grpc_tunnel::GrpcTunnel;
 
-pub use filesync::FileSyncServer;
 pub use auth::{AuthServer, RegistryAuthConfig};
+pub use filesync::FileSyncServer;
 pub use secrets::SecretsServer;
 
 /// Session manager for BuildKit
@@ -103,7 +103,9 @@ impl Session {
         for (key, values) in self.metadata() {
             if let Ok(k) = key.parse::<tonic::metadata::MetadataKey<tonic::metadata::Ascii>>() {
                 for value in values {
-                    if let Ok(v) = value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>() {
+                    if let Ok(v) =
+                        value.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()
+                    {
                         metadata.append(k.clone(), v);
                     }
                 }
@@ -111,9 +113,7 @@ impl Session {
         }
 
         // Start the session
-        let response = control
-            .session(request)
-            .await?;
+        let response = control.session(request).await?;
 
         let mut inbound = response.into_inner();
 
@@ -165,9 +165,18 @@ impl Session {
     /// Get session metadata to attach to solve request
     pub fn metadata(&self) -> HashMap<String, Vec<String>> {
         let mut meta = HashMap::new();
-        meta.insert("X-Docker-Expose-Session-Uuid".to_string(), vec![self.id.clone()]);
-        meta.insert("X-Docker-Expose-Session-Name".to_string(), vec![self.shared_key.clone()]);
-        meta.insert("X-Docker-Expose-Session-Sharedkey".to_string(), vec![self.shared_key.clone()]);
+        meta.insert(
+            "X-Docker-Expose-Session-Uuid".to_string(),
+            vec![self.id.clone()],
+        );
+        meta.insert(
+            "X-Docker-Expose-Session-Name".to_string(),
+            vec![self.shared_key.clone()],
+        );
+        meta.insert(
+            "X-Docker-Expose-Session-Sharedkey".to_string(),
+            vec![self.shared_key.clone()],
+        );
 
         // Add supported gRPC methods
         let methods = vec![
@@ -239,10 +248,9 @@ impl FileSync {
 
     /// Get absolute path
     pub fn absolute_path(&self) -> Result<PathBuf> {
-        std::fs::canonicalize(&self.context_path)
-            .map_err(|e| Error::PathResolution {
-                path: self.context_path.clone(),
-                source: e,
-            })
+        std::fs::canonicalize(&self.context_path).map_err(|e| Error::PathResolution {
+            path: self.context_path.clone(),
+            source: e,
+        })
     }
 }

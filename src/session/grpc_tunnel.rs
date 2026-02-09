@@ -7,15 +7,15 @@ use crate::error::{Error, Result};
 use bytes::Bytes;
 use h2::server::{self, SendResponse};
 use http::{Request, Response, StatusCode};
+use prost::Message as ProstMessage;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
-use prost::Message as ProstMessage;
 
+use super::{AuthServer, FileSyncServer, SecretsServer};
 use crate::proto::moby::buildkit::v1::BytesMessage;
-use super::{FileSyncServer, AuthServer, SecretsServer};
 
 /// Stream multiplexer for handling gRPC tunneled through session
 pub struct GrpcTunnel {
@@ -51,7 +51,8 @@ impl GrpcTunnel {
         let stream = MessageStream::new(inbound_rx, outbound_tx);
 
         // Start HTTP/2 server
-        let mut h2_conn = server::handshake(stream).await
+        let mut h2_conn = server::handshake(stream)
+            .await
             .map_err(|e| Error::Http2Handshake { source: e })?;
 
         tracing::info!("HTTP/2 server started in session tunnel");
@@ -89,13 +90,15 @@ impl GrpcTunnel {
         }
 
         // Extract dir-name header before consuming req
-        let dir_name = req.headers()
+        let dir_name = req
+            .headers()
             .get("dir-name")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
         // Extract followpaths header (can have multiple values)
-        let followpaths: Vec<String> = req.headers()
+        let followpaths: Vec<String> = req
+            .headers()
             .get_all("followpaths")
             .iter()
             .filter_map(|v| v.to_str().ok())
@@ -118,16 +121,26 @@ impl GrpcTunnel {
                     Some(fs) => fs,
                     None => {
                         tracing::error!("FileSync not available");
-                        return self.send_error_response(respond, "FileSync not available").await;
+                        return self
+                            .send_error_response(respond, "FileSync not available")
+                            .await;
                     }
                 };
-                super::diffcopy::handle_diff_copy_stream(file_sync, body, respond, dir_name, followpaths).await
+                super::diffcopy::handle_diff_copy_stream(
+                    file_sync,
+                    body,
+                    respond,
+                    dir_name,
+                    followpaths,
+                )
+                .await
             }
             "/moby.filesync.v1.Auth/GetTokenAuthority" => {
                 // Token-based auth not supported - return error to make BuildKit fall back
                 // BuildKit requires either a valid pubkey or error to properly fallback to Credentials
                 tracing::info!("Auth.GetTokenAuthority called - returning not implemented");
-                self.send_error_response(respond, "Token auth not implemented").await
+                self.send_error_response(respond, "Token auth not implemented")
+                    .await
             }
             "/moby.filesync.v1.Auth/Credentials" => {
                 let payload = Self::read_unary_request(body).await?;
@@ -184,7 +197,8 @@ impl GrpcTunnel {
             .body(())
             .unwrap();
 
-        let mut send_stream = respond.send_response(response, false)
+        let mut send_stream = respond
+            .send_response(response, false)
             .map_err(|e| Error::Http2Stream { source: e })?;
 
         // Send response with gRPC framing (5-byte prefix)
@@ -193,7 +207,8 @@ impl GrpcTunnel {
         framed.extend_from_slice(&(payload.len() as u32).to_be_bytes());
         framed.extend_from_slice(&payload);
 
-        send_stream.send_data(Bytes::from(framed), false)
+        send_stream
+            .send_data(Bytes::from(framed), false)
             .map_err(|e| Error::Http2Stream { source: e })?;
 
         // Send trailers with grpc-status
@@ -202,7 +217,8 @@ impl GrpcTunnel {
             .body(())
             .unwrap();
 
-        send_stream.send_trailers(trailers.headers().clone())
+        send_stream
+            .send_trailers(trailers.headers().clone())
             .map_err(|e| Error::Http2Stream { source: e })?;
 
         Ok(())
@@ -222,17 +238,19 @@ impl GrpcTunnel {
             .body(())
             .unwrap();
 
-        respond.send_response(response, true)
+        respond
+            .send_response(response, true)
             .map_err(|e| Error::Http2Stream { source: e })?;
 
         Ok(())
     }
 
-
     /// Handle Auth.GetTokenAuthority request
     #[allow(dead_code)]
     async fn handle_auth_get_token_authority(&self, payload: Bytes) -> Result<Bytes> {
-        use crate::proto::moby::filesync::v1::{GetTokenAuthorityRequest, GetTokenAuthorityResponse};
+        use crate::proto::moby::filesync::v1::{
+            GetTokenAuthorityRequest, GetTokenAuthorityResponse,
+        };
 
         let request = GetTokenAuthorityRequest::decode(payload)
             .map_err(|e| Error::decode("GetTokenAuthorityRequest", e))?;
@@ -241,9 +259,7 @@ impl GrpcTunnel {
 
         // Return empty response - we don't implement token-based auth
         // BuildKit will detect empty public_key and fall back to Credentials method
-        let response = GetTokenAuthorityResponse {
-            public_key: vec![],
-        };
+        let response = GetTokenAuthorityResponse { public_key: vec![] };
 
         let mut buf = Vec::new();
         response.encode(&mut buf)?;
@@ -252,9 +268,9 @@ impl GrpcTunnel {
 
     /// Handle Auth.Credentials request
     async fn handle_auth_credentials(&self, payload: Bytes) -> Result<Bytes> {
+        use crate::proto::moby::filesync::v1::auth_server::Auth;
         use crate::proto::moby::filesync::v1::CredentialsRequest;
         use tonic::Request;
-        use crate::proto::moby::filesync::v1::auth_server::Auth;
 
         let request = CredentialsRequest::decode(payload)
             .map_err(|e| Error::decode("CredentialsRequest", e))?;
@@ -267,15 +283,24 @@ impl GrpcTunnel {
                 Ok(resp) => {
                     let inner = resp.into_inner();
                     if !inner.username.is_empty() {
-                        tracing::debug!("Returning credentials for host: {} (username: {})",
-                            request.host, inner.username);
+                        tracing::debug!(
+                            "Returning credentials for host: {} (username: {})",
+                            request.host,
+                            inner.username
+                        );
                     } else {
-                        tracing::debug!("No credentials found for host: {}, returning empty", request.host);
+                        tracing::debug!(
+                            "No credentials found for host: {}, returning empty",
+                            request.host
+                        );
                     }
                     inner
                 }
                 Err(status) => {
-                    tracing::warn!("Failed to get credentials: {}, returning empty", status.message());
+                    tracing::warn!(
+                        "Failed to get credentials: {}, returning empty",
+                        status.message()
+                    );
                     use crate::proto::moby::filesync::v1::CredentialsResponse;
                     CredentialsResponse {
                         username: String::new(),
@@ -318,21 +343,25 @@ impl GrpcTunnel {
     async fn handle_secrets_get_secret(&self, payload: Bytes) -> Result<Bytes> {
         use crate::proto::moby::secrets::v1::GetSecretRequest;
 
-        let request = GetSecretRequest::decode(payload)
-            .map_err(|e| Error::decode("GetSecretRequest", e))?;
+        let request =
+            GetSecretRequest::decode(payload).map_err(|e| Error::decode("GetSecretRequest", e))?;
 
         tracing::info!("Secrets.GetSecret request for ID: {}", request.id);
 
         // If secrets service is not configured, return empty data
         let response = if let Some(secrets) = &self.secrets {
             // Use the SecretsServer's get_secret implementation through the Secrets trait
-            use tonic::Request;
             use crate::proto::moby::secrets::v1::secrets_server::Secrets;
+            use tonic::Request;
 
             match secrets.get_secret(Request::new(request.clone())).await {
                 Ok(resp) => {
                     let inner = resp.into_inner();
-                    tracing::debug!("Returning secret '{}' ({} bytes)", request.id, inner.data.len());
+                    tracing::debug!(
+                        "Returning secret '{}' ({} bytes)",
+                        request.id,
+                        inner.data.len()
+                    );
                     inner
                 }
                 Err(status) => {
@@ -445,9 +474,7 @@ impl AsyncWrite for MessageStream {
         _cx: &mut TaskContext<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        let msg = BytesMessage {
-            data: buf.to_vec(),
-        };
+        let msg = BytesMessage { data: buf.to_vec() };
 
         // Try to send immediately (non-blocking)
         match self.outbound_tx.try_send(msg) {
@@ -456,26 +483,18 @@ impl AsyncWrite for MessageStream {
                 // Channel is full, would block
                 Poll::Pending
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                Poll::Ready(Err(std::io::Error::new(
-                    std::io::ErrorKind::BrokenPipe,
-                    "Channel closed",
-                )))
-            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "Channel closed",
+            ))),
         }
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        _cx: &mut TaskContext<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        _cx: &mut TaskContext<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 }

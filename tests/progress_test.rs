@@ -1,6 +1,6 @@
 //! Unit tests for progress handlers
 
-use buildkit_client::progress::{ProgressHandler, ConsoleProgressHandler, JsonProgressHandler};
+use buildkit_client::progress::{ConsoleProgressHandler, JsonProgressHandler, ProgressHandler};
 use buildkit_client::proto::moby::buildkit::v1::StatusResponse;
 
 #[test]
@@ -95,7 +95,10 @@ fn test_progress_handler_with_vertexes() {
         inputs: vec![],
         name: "Test vertex".to_string(),
         cached: false,
-        started: Some(Timestamp { seconds: 0, nanos: 0 }),
+        started: Some(Timestamp {
+            seconds: 0,
+            nanos: 0,
+        }),
         completed: None,
         error: String::new(),
         progress_group: None,
@@ -121,7 +124,10 @@ fn test_progress_handler_with_logs() {
 
     let log = VertexLog {
         vertex: "sha256:abc123".to_string(),
-        timestamp: Some(Timestamp { seconds: 0, nanos: 0 }),
+        timestamp: Some(Timestamp {
+            seconds: 0,
+            nanos: 0,
+        }),
         stream: 1, // stdout
         msg: b"Test log message".to_vec(),
     };
@@ -176,8 +182,14 @@ fn test_json_progress_output_format() {
         inputs: vec![],
         name: "Test operation".to_string(),
         cached: false,
-        started: Some(Timestamp { seconds: 1234567890, nanos: 0 }),
-        completed: Some(Timestamp { seconds: 1234567900, nanos: 0 }),
+        started: Some(Timestamp {
+            seconds: 1234567890,
+            nanos: 0,
+        }),
+        completed: Some(Timestamp {
+            seconds: 1234567900,
+            nanos: 0,
+        }),
         error: String::new(),
         progress_group: None,
     };

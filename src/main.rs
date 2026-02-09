@@ -1,6 +1,6 @@
 use anyhow::Result;
-use buildkit_client::{BuildConfig, BuildKitClient, Platform, RegistryAuth};
 use buildkit_client::progress::{ConsoleProgressHandler, JsonProgressHandler};
+use buildkit_client::{BuildConfig, BuildKitClient, Platform, RegistryAuth};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 

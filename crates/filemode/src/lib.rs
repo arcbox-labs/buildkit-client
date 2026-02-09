@@ -30,25 +30,25 @@
 //! ```
 
 // Unix file type constants
-const S_IFMT: u32 = 0o170000;   // File type mask
-const S_IFDIR: u32 = 0o040000;  // Directory
-const S_IFREG: u32 = 0o100000;  // Regular file
-const S_IFLNK: u32 = 0o120000;  // Symbolic link
-const S_IFIFO: u32 = 0o010000;  // Named pipe (FIFO)
+const S_IFMT: u32 = 0o170000; // File type mask
+const S_IFDIR: u32 = 0o040000; // Directory
+const S_IFREG: u32 = 0o100000; // Regular file
+const S_IFLNK: u32 = 0o120000; // Symbolic link
+const S_IFIFO: u32 = 0o010000; // Named pipe (FIFO)
 const S_IFSOCK: u32 = 0o140000; // Socket
-const S_IFCHR: u32 = 0o020000;  // Character device
-const S_IFBLK: u32 = 0o060000;  // Block device
+const S_IFCHR: u32 = 0o020000; // Character device
+const S_IFBLK: u32 = 0o060000; // Block device
 
 // Go FileMode type bits (from Go's os package)
-const GO_MODE_DIR: u32 = 0x80000000;        // 1 << 31 - Directory
-const GO_MODE_SYMLINK: u32 = 0x08000000;    // 1 << 27 - Symbolic link
-const GO_MODE_DEVICE: u32 = 0x04000000;     // 1 << 26 - Device file
+const GO_MODE_DIR: u32 = 0x80000000; // 1 << 31 - Directory
+const GO_MODE_SYMLINK: u32 = 0x08000000; // 1 << 27 - Symbolic link
+const GO_MODE_DEVICE: u32 = 0x04000000; // 1 << 26 - Device file
 const GO_MODE_NAMED_PIPE: u32 = 0x02000000; // 1 << 25 - Named pipe (FIFO)
-const GO_MODE_SOCKET: u32 = 0x01000000;     // 1 << 24 - Socket
-const GO_MODE_SETUID: u32 = 0x00800000;     // 1 << 23 - Setuid
-const GO_MODE_SETGID: u32 = 0x00400000;     // 1 << 22 - Setgid
-const GO_MODE_CHAR_DEVICE: u32 = 0x00200000;// 1 << 21 - Character device
-const GO_MODE_STICKY: u32 = 0x00100000;     // 1 << 20 - Sticky bit
+const GO_MODE_SOCKET: u32 = 0x01000000; // 1 << 24 - Socket
+const GO_MODE_SETUID: u32 = 0x00800000; // 1 << 23 - Setuid
+const GO_MODE_SETGID: u32 = 0x00400000; // 1 << 22 - Setgid
+const GO_MODE_CHAR_DEVICE: u32 = 0x00200000; // 1 << 21 - Character device
+const GO_MODE_STICKY: u32 = 0x00100000; // 1 << 20 - Sticky bit
 
 /// A Unix file mode (mode_t) value.
 ///
@@ -149,8 +149,8 @@ impl From<UnixMode> for GoFileMode {
             S_IFSOCK => go_mode |= GO_MODE_SOCKET,
             S_IFCHR => go_mode |= GO_MODE_CHAR_DEVICE | GO_MODE_DEVICE,
             S_IFBLK => go_mode |= GO_MODE_DEVICE,
-            S_IFREG => {}, // Regular files have no special bit in Go
-            _ => {},
+            S_IFREG => {} // Regular files have no special bit in Go
+            _ => {}
         }
 
         GoFileMode(go_mode)
@@ -245,7 +245,10 @@ mod tests {
         // Character device with 0o666 permissions
         let unix_mode = UnixMode::from(0o020666);
         let go_mode = GoFileMode::from(unix_mode);
-        assert_eq!(go_mode.as_u32(), GO_MODE_CHAR_DEVICE | GO_MODE_DEVICE | 0o666);
+        assert_eq!(
+            go_mode.as_u32(),
+            GO_MODE_CHAR_DEVICE | GO_MODE_DEVICE | 0o666
+        );
     }
 
     #[test]

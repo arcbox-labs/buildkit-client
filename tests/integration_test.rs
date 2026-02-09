@@ -683,7 +683,7 @@ async fn test_github_private_repo_with_ref() {
     skip_without_buildkit!();
 
     test_integration_with_env();
-    
+
     skip_without_pat_token!();
 
     let github_token =

@@ -28,9 +28,9 @@
 //! - fsutil reference: `github.com/tonistiigi/fsutil` (send.go, receive.go)
 
 use crate::error::{Error, Result};
-use crate::proto::fsutil::types::{Packet, packet::PacketType, Stat};
+use crate::proto::fsutil::types::{packet::PacketType, Packet, Stat};
 use bytes::Bytes;
-use filemode::{UnixMode, GoFileMode};
+use filemode::{GoFileMode, UnixMode};
 use h2::server::SendResponse;
 use http::{Response, StatusCode};
 use prost::Message as ProstMessage;
@@ -58,7 +58,9 @@ pub(super) async fn handle_diff_copy_stream(
 
     tracing::info!(
         "handle_diff_copy_stream called (call #{}, dir_name: {:?}, followpaths: {:?})",
-        call_id, dir_name, followpaths
+        call_id,
+        dir_name,
+        followpaths
     );
     eprintln!(
         "\n========== DiffCopy Call #{} (dir_name: {:?}, followpaths: {:?}) ==========",
@@ -101,13 +103,7 @@ pub(super) async fn handle_diff_copy_stream(
 
     if send_only_dockerfile {
         // BuildKit only wants the Dockerfile
-        send_dockerfile_only(
-            &root_path,
-            &followpaths,
-            &mut send_stream,
-            &mut file_map,
-        )
-        .await?;
+        send_dockerfile_only(&root_path, &followpaths, &mut send_stream, &mut file_map).await?;
     } else {
         // BuildKit wants the full context
         send_full_context(
@@ -499,12 +495,8 @@ async fn process_file_requests(
                                     packet.id,
                                     file_path.display()
                                 );
-                                send_file_data_packets(
-                                    file_path.clone(),
-                                    packet.id,
-                                    send_stream,
-                                )
-                                .await?;
+                                send_file_data_packets(file_path.clone(), packet.id, send_stream)
+                                    .await?;
                             } else {
                                 tracing::warn!(
                                     "File ID {} not found in map (probably a directory, ignoring)",
@@ -583,10 +575,7 @@ async fn send_file_data_packets(
 }
 
 /// Send a single gRPC-framed packet over the h2 stream
-async fn send_grpc_packet(
-    stream: &mut h2::SendStream<Bytes>,
-    packet: &Packet,
-) -> Result<()> {
+async fn send_grpc_packet(stream: &mut h2::SendStream<Bytes>, packet: &Packet) -> Result<()> {
     let mut payload = Vec::new();
     packet.encode(&mut payload)?;
 
@@ -613,4 +602,300 @@ async fn send_grpc_packet(
     tokio::task::yield_now().await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::BytesMut;
+    use http::Request;
+    use std::future::Future;
+    use std::path::PathBuf;
+    use std::pin::Pin;
+    use tokio::io::duplex;
+    use tokio::sync::oneshot;
+
+    type BoxResultFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
+
+    /// Helper to drive an in-memory h2 server, execute `server_logic`, and capture emitted packets.
+    async fn capture_packets<T, F>(server_logic: F) -> (Vec<Packet>, T)
+    where
+        F: for<'a> FnOnce(&'a mut h2::SendStream<Bytes>) -> BoxResultFuture<'a, T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let (client_io, server_io) = duplex(256 * 1024);
+        let (result_tx, result_rx) = oneshot::channel();
+        let (done_tx, done_rx) = oneshot::channel();
+
+        let server_task = tokio::spawn(async move {
+            let mut connection = h2::server::handshake(server_io)
+                .await
+                .expect("server handshake");
+
+            if let Some(result) = connection.accept().await {
+                let (_request, mut respond) = result.expect("server accept");
+                let response = Response::builder().status(StatusCode::OK).body(()).unwrap();
+                let mut send_stream = respond
+                    .send_response(response, false)
+                    .expect("send response");
+
+                let outcome = server_logic(&mut send_stream).await;
+
+                let _ = send_stream.send_data(Bytes::new(), true);
+                let _ = result_tx.send(outcome);
+                let _ = done_rx.await;
+            } else {
+                let _ = result_tx.send(Err(Error::other("client did not open request in test")));
+            }
+        });
+
+        let (mut client, connection) = h2::client::handshake(client_io)
+            .await
+            .expect("client handshake");
+        let client_task = tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                panic!("client connection error: {e}");
+            }
+        });
+
+        let (response_future, _send_stream) = client
+            .ready()
+            .await
+            .expect("client ready")
+            .send_request(Request::builder().uri("/").body(()).unwrap(), true)
+            .expect("send request");
+
+        let response = response_future.await.expect("await response");
+
+        let mut body = response.into_body();
+        let mut buffer = BytesMut::new();
+        while let Some(chunk) = body.data().await {
+            buffer.extend_from_slice(&chunk.expect("body chunk"));
+        }
+
+        let outcome = result_rx
+            .await
+            .expect("receive outcome")
+            .expect("server logic");
+        let packets = decode_packets(&buffer);
+
+        let _ = done_tx.send(());
+
+        client_task.await.expect("client task");
+        server_task.await.expect("server task");
+
+        (packets, outcome)
+    }
+
+    fn decode_packets(buffer: &BytesMut) -> Vec<Packet> {
+        let mut packets = Vec::new();
+        let mut slice: &[u8] = buffer.as_ref();
+
+        while !slice.is_empty() {
+            assert!(
+                slice.len() >= 5,
+                "incomplete gRPC frame encountered ({} bytes remain)",
+                slice.len()
+            );
+
+            assert_eq!(slice[0], 0, "expected uncompressed gRPC frame");
+            let length = u32::from_be_bytes([slice[1], slice[2], slice[3], slice[4]]) as usize;
+            let total_len = 5 + length;
+            assert!(
+                slice.len() >= total_len,
+                "gRPC frame length {} exceeds remaining buffer {}",
+                length,
+                slice.len()
+            );
+
+            let packet = Packet::decode(&slice[5..total_len]).expect("decode packet");
+            packets.push(packet);
+
+            slice = &slice[total_len..];
+        }
+
+        packets
+    }
+
+    fn create_test_context(root: &PathBuf) {
+        std::fs::write(root.join("Dockerfile"), "FROM alpine\n").unwrap();
+
+        let app_dir = root.join("app");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(app_dir.join("config.txt"), "config").unwrap();
+        std::fs::write(app_dir.join("main.txt"), "main").unwrap();
+
+        let sub_dir = app_dir.join("subdir");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        std::fs::write(sub_dir.join("data.txt"), "data").unwrap();
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stat_packets_follow_depth_first_order() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root_path = temp_dir.path().to_path_buf();
+        create_test_context(&root_path);
+
+        let root_for_closure = root_path.clone();
+        let (packets, (file_map, id_counter)) = capture_packets(move |send_stream| {
+            let root = root_for_closure.clone();
+            Box::pin(async move {
+                let mut file_map = HashMap::new();
+                let mut counter = 0u32;
+
+                send_stat_packets_dfs(
+                    root,
+                    String::new(),
+                    send_stream,
+                    &mut file_map,
+                    &mut counter,
+                    None,
+                )
+                .await?;
+
+                Ok((file_map, counter))
+            })
+        })
+        .await;
+
+        let paths: Vec<String> = packets
+            .iter()
+            .map(|packet| {
+                assert_eq!(
+                    PacketType::try_from(packet.r#type).unwrap(),
+                    PacketType::PacketStat
+                );
+                packet.stat.as_ref().unwrap().path.clone()
+            })
+            .collect();
+
+        assert_eq!(
+            paths,
+            vec![
+                "Dockerfile",
+                "app",
+                "app/config.txt",
+                "app/main.txt",
+                "app/subdir",
+                "app/subdir/data.txt"
+            ]
+        );
+
+        assert_eq!(id_counter, 6);
+        assert_eq!(file_map.len(), 4);
+        assert_eq!(file_map.get(&0).unwrap(), &root_path.join("Dockerfile"));
+        assert_eq!(file_map.get(&2).unwrap(), &root_path.join("app/config.txt"));
+        assert_eq!(file_map.get(&3).unwrap(), &root_path.join("app/main.txt"));
+        assert_eq!(
+            file_map.get(&5).unwrap(),
+            &root_path.join("app/subdir/data.txt")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stat_packets_respect_followpaths_filter() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root_path = temp_dir.path().to_path_buf();
+        create_test_context(&root_path);
+
+        let followpaths = vec!["app/subdir/data.txt".to_string()];
+        let root_for_closure = root_path.clone();
+        let follow_for_closure = followpaths.clone();
+
+        let (packets, (file_map, id_counter)) = capture_packets(move |send_stream| {
+            let root = root_for_closure.clone();
+            let follow = follow_for_closure.clone();
+            Box::pin(async move {
+                let mut file_map = HashMap::new();
+                let mut counter = 0u32;
+
+                send_stat_packets_dfs(
+                    root,
+                    String::new(),
+                    send_stream,
+                    &mut file_map,
+                    &mut counter,
+                    Some(&follow),
+                )
+                .await?;
+
+                Ok((file_map, counter))
+            })
+        })
+        .await;
+
+        let paths: Vec<String> = packets
+            .iter()
+            .map(|packet| {
+                assert_eq!(
+                    PacketType::try_from(packet.r#type).unwrap(),
+                    PacketType::PacketStat
+                );
+                packet.stat.as_ref().unwrap().path.clone()
+            })
+            .collect();
+
+        assert_eq!(paths, vec!["app", "app/subdir", "app/subdir/data.txt"]);
+
+        assert_eq!(id_counter, 3);
+        assert_eq!(file_map.len(), 1);
+        assert_eq!(
+            file_map.get(&2).unwrap(),
+            &root_path.join("app/subdir/data.txt")
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn file_data_packets_stream_contents_and_eof() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let root_path = temp_dir.path();
+        let file_path = root_path.join("large.txt");
+
+        let content_len = 70 * 1024 + 7;
+        let expected_content = vec![b'a'; content_len];
+        std::fs::write(&file_path, &expected_content).unwrap();
+
+        let req_id = 42u32;
+        let file_for_closure = file_path.clone();
+
+        let (packets, ()) = capture_packets(move |send_stream| {
+            let path = file_for_closure.clone();
+            Box::pin(async move { send_file_data_packets(path, req_id, send_stream).await })
+        })
+        .await;
+
+        let mut offset = 0usize;
+        let mut expected_sizes = Vec::new();
+        let mut remaining = expected_content.len();
+        while remaining > 0 {
+            let chunk = remaining.min(32 * 1024);
+            expected_sizes.push(chunk);
+            remaining -= chunk;
+        }
+        expected_sizes.push(0);
+
+        assert_eq!(packets.len(), expected_sizes.len());
+        for (packet, expected_size) in packets.iter().zip(expected_sizes.iter()) {
+            assert_eq!(
+                PacketType::try_from(packet.r#type).unwrap(),
+                PacketType::PacketData
+            );
+            assert_eq!(packet.id, req_id);
+
+            let data = &packet.data;
+            assert_eq!(data.len(), *expected_size);
+
+            if *expected_size > 0 {
+                let end = offset + *expected_size;
+                assert_eq!(
+                    data,
+                    &expected_content[offset..end],
+                    "mismatched chunk contents"
+                );
+                offset = end;
+            }
+        }
+
+        assert_eq!(offset, expected_content.len());
+    }
 }

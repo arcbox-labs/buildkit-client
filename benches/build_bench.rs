@@ -2,22 +2,18 @@
 //!
 //! Run with: cargo bench
 
+use buildkit_client::{BuildConfig, DockerfileSource, Platform};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use buildkit_client::{BuildConfig, Platform, DockerfileSource};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn bench_platform_parse(c: &mut Criterion) {
     c.bench_function("platform_parse_simple", |b| {
-        b.iter(|| {
-            Platform::parse(black_box("linux/amd64"))
-        })
+        b.iter(|| Platform::parse(black_box("linux/amd64")))
     });
 
     c.bench_function("platform_parse_with_variant", |b| {
-        b.iter(|| {
-            Platform::parse(black_box("linux/arm64/v8"))
-        })
+        b.iter(|| Platform::parse(black_box("linux/arm64/v8")))
     });
 }
 
@@ -25,23 +21,17 @@ fn bench_platform_to_string(c: &mut Criterion) {
     let platform = Platform::linux_amd64();
 
     c.bench_function("platform_to_string", |b| {
-        b.iter(|| {
-            black_box(&platform).to_string()
-        })
+        b.iter(|| black_box(&platform).to_string())
     });
 }
 
 fn bench_build_config_creation(c: &mut Criterion) {
     c.bench_function("build_config_local", |b| {
-        b.iter(|| {
-            BuildConfig::local(black_box("./test"))
-        })
+        b.iter(|| BuildConfig::local(black_box("./test")))
     });
 
     c.bench_function("build_config_github", |b| {
-        b.iter(|| {
-            BuildConfig::github(black_box("https://github.com/user/repo.git"))
-        })
+        b.iter(|| BuildConfig::github(black_box("https://github.com/user/repo.git")))
     });
 }
 
@@ -65,17 +55,11 @@ fn bench_build_config_builder_pattern(c: &mut Criterion) {
 fn bench_session_metadata(c: &mut Criterion) {
     use buildkit_client::session::Session;
 
-    c.bench_function("session_creation", |b| {
-        b.iter(|| {
-            Session::new()
-        })
-    });
+    c.bench_function("session_creation", |b| b.iter(|| Session::new()));
 
     c.bench_function("session_metadata_generation", |b| {
         let session = Session::new();
-        b.iter(|| {
-            session.metadata()
-        })
+        b.iter(|| session.metadata())
     });
 }
 
@@ -93,20 +77,16 @@ fn bench_dockerfile_source_match(c: &mut Criterion) {
     };
 
     c.bench_function("dockerfile_source_match_local", |b| {
-        b.iter(|| {
-            match black_box(&local_source) {
-                DockerfileSource::Local { .. } => true,
-                _ => false,
-            }
+        b.iter(|| match black_box(&local_source) {
+            DockerfileSource::Local { .. } => true,
+            _ => false,
         })
     });
 
     c.bench_function("dockerfile_source_match_github", |b| {
-        b.iter(|| {
-            match black_box(&github_source) {
-                DockerfileSource::GitHub { .. } => true,
-                _ => false,
-            }
+        b.iter(|| match black_box(&github_source) {
+            DockerfileSource::GitHub { .. } => true,
+            _ => false,
         })
     });
 }

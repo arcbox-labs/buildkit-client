@@ -1,6 +1,6 @@
 //! Unit tests for session module
 
-use buildkit_client::session::{Session, FileSyncServer, AuthServer, RegistryAuthConfig};
+use buildkit_client::session::{AuthServer, FileSyncServer, RegistryAuthConfig, Session};
 
 #[test]
 fn test_session_creation() {
@@ -23,11 +23,17 @@ fn test_session_metadata_no_services() {
 
     // Should have session UUID header
     assert!(metadata.contains_key("X-Docker-Expose-Session-Uuid"));
-    assert_eq!(metadata.get("X-Docker-Expose-Session-Uuid").unwrap()[0], session.id);
+    assert_eq!(
+        metadata.get("X-Docker-Expose-Session-Uuid").unwrap()[0],
+        session.id
+    );
 
     // Should have shared key header
     assert!(metadata.contains_key("X-Docker-Expose-Session-Sharedkey"));
-    assert_eq!(metadata.get("X-Docker-Expose-Session-Sharedkey").unwrap()[0], session.shared_key);
+    assert_eq!(
+        metadata.get("X-Docker-Expose-Session-Sharedkey").unwrap()[0],
+        session.shared_key
+    );
 
     // Should have name header
     assert!(metadata.contains_key("X-Docker-Expose-Session-Name"));

@@ -1,13 +1,11 @@
 //! Authentication protocol implementation for BuildKit sessions
 
-use tonic::{Request, Response, Status};
 use crate::proto::moby::filesync::v1::{
-    auth_server::Auth,
-    CredentialsRequest, CredentialsResponse,
-    FetchTokenRequest, FetchTokenResponse,
-    GetTokenAuthorityRequest, GetTokenAuthorityResponse,
+    auth_server::Auth, CredentialsRequest, CredentialsResponse, FetchTokenRequest,
+    FetchTokenResponse, GetTokenAuthorityRequest, GetTokenAuthorityResponse,
     VerifyTokenAuthorityRequest, VerifyTokenAuthorityResponse,
 };
+use tonic::{Request, Response, Status};
 
 /// Registry authentication configuration
 ///
@@ -110,7 +108,10 @@ impl Auth for AuthServer {
         let req = request.into_inner();
         tracing::debug!(
             "FetchToken requested - Host: {}, Realm: {}, Service: {}, Scopes: {:?}",
-            req.host, req.realm, req.service, req.scopes
+            req.host,
+            req.realm,
+            req.service,
+            req.scopes
         );
 
         // For most cases, BuildKit will handle token exchange

@@ -34,13 +34,10 @@ impl BuildKitClient {
             .map_err(|_| Error::InvalidEndpoint(addr.clone()))?
             .timeout(std::time::Duration::from_secs(30));
 
-        let channel = endpoint
-            .connect()
-            .await
-            .map_err(|e| Error::Connection {
-                endpoint: addr,
-                source: e,
-            })?;
+        let channel = endpoint.connect().await.map_err(|e| Error::Connection {
+            endpoint: addr,
+            source: e,
+        })?;
 
         let control = ControlClient::new(channel);
 
@@ -58,10 +55,7 @@ impl BuildKitClient {
     pub async fn health_check(&mut self) -> Result<()> {
         use crate::proto::moby::buildkit::v1::InfoRequest;
 
-        let _info = self
-            .control
-            .info(InfoRequest {})
-            .await?;
+        let _info = self.control.info(InfoRequest {}).await?;
 
         tracing::debug!("BuildKit health check passed");
         Ok(())

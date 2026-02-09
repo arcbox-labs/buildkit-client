@@ -86,16 +86,16 @@
 //! }
 //! ```
 
-pub mod proto;
-pub mod error;
 pub mod builder;
 pub mod client;
+pub mod error;
 pub mod progress;
-pub mod solve;
+pub mod proto;
 pub mod session;
+pub mod solve;
 
 // Re-export main types
 pub use builder::{BuildConfig, DockerfileSource, Platform, RegistryAuth};
 pub use client::BuildKitClient;
-pub use solve::BuildResult;
 pub use error::{Error, Result};
+pub use solve::BuildResult;

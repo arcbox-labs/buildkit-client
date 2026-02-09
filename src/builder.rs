@@ -71,7 +71,6 @@ impl Platform {
             _ => Err(Error::InvalidPlatform(s.to_string())),
         }
     }
-
 }
 
 impl std::fmt::Display for Platform {
@@ -185,10 +184,14 @@ impl BuildConfig {
     /// Set Dockerfile path
     pub fn dockerfile(mut self, path: impl Into<String>) -> Self {
         match &mut self.source {
-            DockerfileSource::Local { dockerfile_path, .. } => {
+            DockerfileSource::Local {
+                dockerfile_path, ..
+            } => {
                 *dockerfile_path = Some(PathBuf::from(path.into()));
             }
-            DockerfileSource::GitHub { dockerfile_path, .. } => {
+            DockerfileSource::GitHub {
+                dockerfile_path, ..
+            } => {
                 *dockerfile_path = Some(path.into());
             }
         }
@@ -227,7 +230,10 @@ impl BuildConfig {
 
     /// Set GitHub token for private repositories
     pub fn github_token(mut self, token: impl Into<String>) -> Self {
-        if let DockerfileSource::GitHub { token: ref mut t, .. } = &mut self.source {
+        if let DockerfileSource::GitHub {
+            token: ref mut t, ..
+        } = &mut self.source
+        {
             *t = Some(token.into());
         }
         self
@@ -235,7 +241,10 @@ impl BuildConfig {
 
     /// Set git reference (branch, tag, or commit)
     pub fn git_ref(mut self, git_ref: impl Into<String>) -> Self {
-        if let DockerfileSource::GitHub { git_ref: ref mut r, .. } = &mut self.source {
+        if let DockerfileSource::GitHub {
+            git_ref: ref mut r, ..
+        } = &mut self.source
+        {
             *r = Some(git_ref.into());
         }
         self

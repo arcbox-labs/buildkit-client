@@ -7,10 +7,8 @@ use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use crate::proto::fsutil::types::{Packet, packet::PacketType, Stat};
-use crate::proto::moby::filesync::v1::{
-    file_sync_server::FileSync,
-};
+use crate::proto::fsutil::types::{packet::PacketType, Packet, Stat};
+use crate::proto::moby::filesync::v1::file_sync_server::FileSync;
 
 /// File sync server implementation
 ///
@@ -119,7 +117,8 @@ impl FileSyncServer {
                 let entry_path = entry.path();
                 let stat_packet = Self::create_stat_packet(&entry_path, &rel_path).await?;
 
-                tx.send(Ok(stat_packet)).await
+                tx.send(Ok(stat_packet))
+                    .await
                     .map_err(|_| Error::send_failed("STAT packet", "channel closed"))?;
 
                 // Recursively handle directories
@@ -156,7 +155,8 @@ impl FileSyncServer {
                 data: buffer[..n].to_vec(),
             };
 
-            tx.send(Ok(packet)).await
+            tx.send(Ok(packet))
+                .await
                 .map_err(|_| Error::send_failed("DATA packet", "channel closed"))?;
         }
 
@@ -168,7 +168,8 @@ impl FileSyncServer {
             data: vec![],
         };
 
-        tx.send(Ok(fin_packet)).await
+        tx.send(Ok(fin_packet))
+            .await
             .map_err(|_| Error::send_failed("FIN packet", "channel closed"))?;
 
         Ok(())
@@ -194,13 +195,19 @@ impl FileSync for FileSyncServer {
             // First, send all file stats
             if let Err(e) = FileSyncServer::read_directory(&server.root_path, "", &tx).await {
                 tracing::error!("Failed to read directory: {}", e);
-                let _ = tx.send(Err(Status::internal(format!("Failed to read directory: {}", e)))).await;
+                let _ = tx
+                    .send(Err(Status::internal(format!(
+                        "Failed to read directory: {}",
+                        e
+                    ))))
+                    .await;
                 return;
             }
 
             // Process incoming requests
             while let Ok(Some(packet)) = in_stream.message().await {
-                let packet_type = PacketType::try_from(packet.r#type).unwrap_or(PacketType::PacketStat);
+                let packet_type =
+                    PacketType::try_from(packet.r#type).unwrap_or(PacketType::PacketStat);
 
                 match packet_type {
                     PacketType::PacketReq => {
@@ -217,7 +224,12 @@ impl FileSync for FileSyncServer {
                             if path.is_file() {
                                 if let Err(e) = server.send_file_data(&path, packet.id, &tx).await {
                                     tracing::error!("Failed to send file data: {}", e);
-                                    let _ = tx.send(Err(Status::internal(format!("Failed to send file: {}", e)))).await;
+                                    let _ = tx
+                                        .send(Err(Status::internal(format!(
+                                            "Failed to send file: {}",
+                                            e
+                                        ))))
+                                        .await;
                                     return;
                                 }
                             }

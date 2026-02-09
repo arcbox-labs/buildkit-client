@@ -1,11 +1,10 @@
 //! Secrets protocol implementation for BuildKit sessions
 
-use tonic::{Request, Response, Status};
-use std::collections::HashMap;
 use crate::proto::moby::secrets::v1::{
-    secrets_server::Secrets,
-    GetSecretRequest, GetSecretResponse,
+    secrets_server::Secrets, GetSecretRequest, GetSecretResponse,
 };
+use std::collections::HashMap;
+use tonic::{Request, Response, Status};
 
 /// Maximum secret size (500KB, matching BuildKit's MaxSecretSize)
 const MAX_SECRET_SIZE: usize = 500 * 1024;
@@ -56,7 +55,11 @@ impl SecretsServer {
     /// ```
     pub fn add_secret(&mut self, id: impl Into<String>, data: Vec<u8>) -> Result<(), String> {
         if data.len() > MAX_SECRET_SIZE {
-            return Err(format!("Secret size {} exceeds maximum of {}", data.len(), MAX_SECRET_SIZE));
+            return Err(format!(
+                "Secret size {} exceeds maximum of {}",
+                data.len(),
+                MAX_SECRET_SIZE
+            ));
         }
         self.secrets.insert(id.into(), data);
         Ok(())
@@ -77,7 +80,11 @@ impl SecretsServer {
     /// let mut secrets = SecretsServer::new();
     /// secrets.add_secret_string("api_key", "secret_value").unwrap();
     /// ```
-    pub fn add_secret_string(&mut self, id: impl Into<String>, value: impl AsRef<str>) -> Result<(), String> {
+    pub fn add_secret_string(
+        &mut self,
+        id: impl Into<String>,
+        value: impl AsRef<str>,
+    ) -> Result<(), String> {
         self.add_secret(id, value.as_ref().as_bytes().to_vec())
     }
 
@@ -113,13 +120,15 @@ impl Secrets for SecretsServer {
         request: Request<GetSecretRequest>,
     ) -> Result<Response<GetSecretResponse>, Status> {
         let req = request.into_inner();
-        tracing::debug!("Secret requested - ID: {}, Annotations: {:?}", req.id, req.annotations);
+        tracing::debug!(
+            "Secret requested - ID: {}, Annotations: {:?}",
+            req.id,
+            req.annotations
+        );
 
         if let Some(data) = self.secrets.get(&req.id) {
             tracing::debug!("Found secret '{}' ({} bytes)", req.id, data.len());
-            Ok(Response::new(GetSecretResponse {
-                data: data.clone(),
-            }))
+            Ok(Response::new(GetSecretResponse { data: data.clone() }))
         } else {
             tracing::warn!("Secret '{}' not found", req.id);
             Err(Status::not_found(format!("secret {} not found", req.id)))

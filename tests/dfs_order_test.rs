@@ -75,7 +75,12 @@ fn test_dfs_traversal_order() {
 
     println!("\n=== DFS Traversal Order ===");
     for (i, (path, is_dir)) in order.iter().enumerate() {
-        println!("{}: {} {}", i, path, if *is_dir { "(DIR)" } else { "(FILE)" });
+        println!(
+            "{}: {} {}",
+            i,
+            path,
+            if *is_dir { "(DIR)" } else { "(FILE)" }
+        );
     }
 
     // Verify the correct order
@@ -111,17 +116,35 @@ fn test_directory_before_contents() {
 
     // Find positions
     let app_pos = order.iter().position(|(p, _)| p == "app").unwrap();
-    let config_pos = order.iter().position(|(p, _)| p == "app/config.txt").unwrap();
+    let config_pos = order
+        .iter()
+        .position(|(p, _)| p == "app/config.txt")
+        .unwrap();
     let main_pos = order.iter().position(|(p, _)| p == "app/main.txt").unwrap();
     let subdir_pos = order.iter().position(|(p, _)| p == "app/subdir").unwrap();
-    let data_pos = order.iter().position(|(p, _)| p == "app/subdir/data.txt").unwrap();
+    let data_pos = order
+        .iter()
+        .position(|(p, _)| p == "app/subdir/data.txt")
+        .unwrap();
 
     // Verify directory comes before its contents
-    assert!(app_pos < config_pos, "app directory must come before app/config.txt");
-    assert!(app_pos < main_pos, "app directory must come before app/main.txt");
-    assert!(app_pos < subdir_pos, "app directory must come before app/subdir");
+    assert!(
+        app_pos < config_pos,
+        "app directory must come before app/config.txt"
+    );
+    assert!(
+        app_pos < main_pos,
+        "app directory must come before app/main.txt"
+    );
+    assert!(
+        app_pos < subdir_pos,
+        "app directory must come before app/subdir"
+    );
 
-    assert!(subdir_pos < data_pos, "app/subdir must come before app/subdir/data.txt");
+    assert!(
+        subdir_pos < data_pos,
+        "app/subdir must come before app/subdir/data.txt"
+    );
 }
 
 #[test]
@@ -133,12 +156,21 @@ fn test_alphabetical_order_within_directory() {
     collect_dfs_order(root, String::new(), &mut order);
 
     // Within app/ directory, should be: config.txt, main.txt, subdir (alphabetical)
-    let config_pos = order.iter().position(|(p, _)| p == "app/config.txt").unwrap();
+    let config_pos = order
+        .iter()
+        .position(|(p, _)| p == "app/config.txt")
+        .unwrap();
     let main_pos = order.iter().position(|(p, _)| p == "app/main.txt").unwrap();
     let subdir_pos = order.iter().position(|(p, _)| p == "app/subdir").unwrap();
 
-    assert!(config_pos < main_pos, "config.txt should come before main.txt (alphabetical)");
-    assert!(main_pos < subdir_pos, "main.txt should come before subdir (alphabetical)");
+    assert!(
+        config_pos < main_pos,
+        "config.txt should come before main.txt (alphabetical)"
+    );
+    assert!(
+        main_pos < subdir_pos,
+        "main.txt should come before subdir (alphabetical)"
+    );
 }
 
 #[test]
