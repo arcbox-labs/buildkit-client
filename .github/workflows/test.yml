@@ -22,21 +22,6 @@ jobs:
           - nightly
     continue-on-error: ${{ matrix.rust == 'nightly' }}
 
-    services:
-      buildkit:
-        image: moby/buildkit:latest
-        ports:
-          - 1234:1234
-        options: >-
-          --privileged
-          --health-cmd "buildctl debug workers"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        env:
-          BUILDKIT_STEP_LOG_MAX_SIZE: -1
-          BUILDKIT_STEP_LOG_MAX_SPEED: -1
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -46,6 +31,9 @@ jobs:
       with:
         toolchain: ${{ matrix.rust }}
         components: rustfmt, clippy
+
+    - name: Install protoc
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
 
     - name: Cache cargo registry
       uses: actions/cache@v4
@@ -89,11 +77,19 @@ jobs:
         cargo test --test progress_test --verbose
         cargo test --test proto_test --verbose
 
+    - name: Start BuildKit
+      run: |
+        docker run -d --privileged \
+          -p 1234:1234 \
+          --name buildkit \
+          moby/buildkit:latest \
+          --addr tcp://0.0.0.0:1234
+
     - name: Wait for BuildKit
       run: |
         echo "Waiting for BuildKit to be ready..."
-        for i in {1..30}; do
-          if curl -f http://localhost:1234/healthz 2>/dev/null; then
+        for i in $(seq 1 30); do
+          if docker exec buildkit buildctl debug workers >/dev/null 2>&1; then
             echo "BuildKit is ready"
             exit 0
           fi
@@ -113,18 +109,6 @@ jobs:
     name: Code Coverage
     runs-on: ubuntu-latest
 
-    services:
-      buildkit:
-        image: moby/buildkit:latest
-        ports:
-          - 1234:1234
-        options: >-
-          --privileged
-          --health-cmd "buildctl debug workers"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -132,14 +116,25 @@ jobs:
     - name: Install Rust stable
       uses: dtolnay/rust-toolchain@stable
 
+    - name: Install protoc
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
+
     - name: Install tarpaulin
       run: cargo install cargo-tarpaulin
+
+    - name: Start BuildKit
+      run: |
+        docker run -d --privileged \
+          -p 1234:1234 \
+          --name buildkit \
+          moby/buildkit:latest \
+          --addr tcp://0.0.0.0:1234
 
     - name: Wait for BuildKit
       run: |
         echo "Waiting for BuildKit to be ready..."
-        for i in {1..30}; do
-          if curl -f http://localhost:1234/healthz 2>/dev/null; then
+        for i in $(seq 1 30); do
+          if docker exec buildkit buildctl debug workers >/dev/null 2>&1; then
             echo "BuildKit is ready"
             exit 0
           fi
@@ -171,6 +166,9 @@ jobs:
 
     - name: Install Rust stable
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Install protoc
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
 
     - name: Run benchmarks
       run: cargo bench --bench build_bench -- --output-format bencher | tee output.txt
@@ -208,6 +206,9 @@ jobs:
 
     - name: Install Rust stable
       uses: dtolnay/rust-toolchain@stable
+
+    - name: Install protoc
+      run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
 
     - name: Build examples
       run: |
