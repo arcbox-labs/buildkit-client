@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770668138796,
+  "lastUpdate": 1770668321365,
   "repoUrl": "https://github.com/arcbox-labs/buildkit-client",
   "entries": {
     "Benchmark": [
@@ -358,6 +358,96 @@ window.BENCHMARK_DATA = {
           {
             "name": "build_args_insertion",
             "value": 182,
+            "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "41898282+github-actions[bot]@users.noreply.github.com",
+            "name": "github-actions[bot]",
+            "username": "github-actions[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "659a10d7acc75e2d341c955d64eb209c160fb741",
+          "message": "chore: release (#2)\n\nCo-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>",
+          "timestamp": "2026-02-10T04:14:18+08:00",
+          "tree_id": "76b229f38893374e440ff26062b2430367f1f44a",
+          "url": "https://github.com/arcbox-labs/buildkit-client/commit/659a10d7acc75e2d341c955d64eb209c160fb741"
+        },
+        "date": 1770668320131,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "platform_parse_simple",
+            "value": 68,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_parse_with_variant",
+            "value": 90,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_to_string",
+            "value": 54,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_local",
+            "value": 124,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_github",
+            "value": 125,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_full_chain",
+            "value": 542,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_creation",
+            "value": 1070,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_metadata_generation",
+            "value": 551,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_local",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_github",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_args_insertion",
+            "value": 183,
             "range": "± 0",
             "unit": "ns/iter"
           }
