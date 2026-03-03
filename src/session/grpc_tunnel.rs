@@ -81,14 +81,6 @@ impl GrpcTunnel {
         let method = req.uri().path().to_string();
         tracing::info!("Received gRPC call: {}", method);
 
-        // Debug: print all request headers
-        eprintln!("\n=== Request Headers for {} ===", method);
-        for (name, value) in req.headers() {
-            if let Ok(v) = value.to_str() {
-                eprintln!("  {}: {}", name, v);
-            }
-        }
-
         // Extract dir-name header before consuming req
         let dir_name = req
             .headers()
@@ -401,11 +393,16 @@ impl GrpcTunnel {
 }
 
 /// A stream that wraps BytesMessage channels to implement AsyncRead + AsyncWrite
+///
+/// h2 takes exclusive ownership of this stream and does NOT split it,
+/// so no Arc<Mutex> is needed on the receiver.
 struct MessageStream {
-    inbound_rx: Arc<tokio::sync::Mutex<mpsc::Receiver<BytesMessage>>>,
+    inbound_rx: mpsc::Receiver<BytesMessage>,
     outbound_tx: mpsc::Sender<BytesMessage>,
     read_buffer: Vec<u8>,
     read_pos: usize,
+    read_count: u64,
+    write_count: u64,
 }
 
 impl MessageStream {
@@ -414,10 +411,12 @@ impl MessageStream {
         outbound_tx: mpsc::Sender<BytesMessage>,
     ) -> Self {
         Self {
-            inbound_rx: Arc::new(tokio::sync::Mutex::new(inbound_rx)),
+            inbound_rx,
             outbound_tx,
             read_buffer: Vec::new(),
             read_pos: 0,
+            read_count: 0,
+            write_count: 0,
         }
     }
 }
@@ -444,15 +443,15 @@ impl AsyncRead for MessageStream {
             return Poll::Ready(Ok(()));
         }
 
-        // Try to receive next message
-        let inbound_rx = self.inbound_rx.clone();
-        let mut rx = match inbound_rx.try_lock() {
-            Ok(rx) => rx,
-            Err(_) => return Poll::Pending,
-        };
-
-        match rx.poll_recv(cx) {
+        // Poll the receiver directly (no mutex needed)
+        match self.inbound_rx.poll_recv(cx) {
             Poll::Ready(Some(msg)) => {
+                self.read_count += 1;
+                tracing::debug!(
+                    read_count = self.read_count,
+                    data_len = msg.data.len(),
+                    "MessageStream: poll_read got data"
+                );
                 self.read_buffer = msg.data;
                 self.read_pos = 0;
 
@@ -462,7 +461,13 @@ impl AsyncRead for MessageStream {
 
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(None) => Poll::Ready(Ok(())), // EOF
+            Poll::Ready(None) => {
+                tracing::info!(
+                    total_reads = self.read_count,
+                    "MessageStream: poll_read EOF (channel closed)"
+                );
+                Poll::Ready(Ok(()))
+            }
             Poll::Pending => Poll::Pending,
         }
     }
@@ -471,22 +476,35 @@ impl AsyncRead for MessageStream {
 impl AsyncWrite for MessageStream {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut TaskContext<'_>,
+        cx: &mut TaskContext<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
+        let this = self.get_mut();
         let msg = BytesMessage { data: buf.to_vec() };
 
-        // Try to send immediately (non-blocking)
-        match self.outbound_tx.try_send(msg) {
-            Ok(()) => Poll::Ready(Ok(buf.len())),
+        match this.outbound_tx.try_send(msg) {
+            Ok(()) => {
+                this.write_count += 1;
+                tracing::debug!(
+                    write_count = this.write_count,
+                    data_len = buf.len(),
+                    "MessageStream: poll_write sent data"
+                );
+                Poll::Ready(Ok(buf.len()))
+            }
             Err(mpsc::error::TrySendError::Full(_)) => {
-                // Channel is full, would block
+                tracing::warn!("MessageStream: outbound channel full, scheduling retry");
+                // Register waker so we get polled again
+                cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            Err(mpsc::error::TrySendError::Closed(_)) => Poll::Ready(Err(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "Channel closed",
-            ))),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                tracing::error!("MessageStream: outbound channel closed");
+                Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "Channel closed",
+                )))
+            }
         }
     }
 

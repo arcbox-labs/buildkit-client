@@ -62,11 +62,6 @@ pub(super) async fn handle_diff_copy_stream(
         dir_name,
         followpaths
     );
-    eprintln!(
-        "\n========== DiffCopy Call #{} (dir_name: {:?}, followpaths: {:?}) ==========",
-        call_id, dir_name, followpaths
-    );
-
     tracing::info!("FileSync.DiffCopy streaming started (call #{})", call_id);
 
     // Build response headers
@@ -89,12 +84,6 @@ pub(super) async fn handle_diff_copy_stream(
         root_path.display(),
         call_id
     );
-    eprintln!(
-        "Root path: {}, is_dir: {}",
-        root_path.display(),
-        root_path.is_dir()
-    );
-
     // Determine what to send based on dir_name header
     let mut file_map = HashMap::new();
     let mut id_counter = 0u32;
@@ -169,10 +158,7 @@ async fn send_dockerfile_only(
         "Dockerfile".to_string()
     };
 
-    eprintln!(
-        "BuildKit requested 'dockerfile' - sending only {}",
-        dockerfile_name
-    );
+    tracing::debug!("BuildKit requested 'dockerfile' - sending only {}", dockerfile_name);
 
     let dockerfile_path = root_path.join(&dockerfile_name);
     if !dockerfile_path.exists() {
@@ -211,7 +197,6 @@ async fn send_dockerfile_only(
         stat.mode = 0o644; // Regular file in Go FileMode format
     }
 
-    let mode = stat.mode;
     let stat_packet = Packet {
         r#type: PacketType::PacketStat as i32,
         stat: Some(stat),
@@ -219,10 +204,6 @@ async fn send_dockerfile_only(
         data: vec![],
     };
 
-    eprintln!(
-        "DFS: Sending STAT #0: {} (FILE, mode: 0o{:o})",
-        dockerfile_name, mode
-    );
     send_grpc_packet(send_stream, &stat_packet).await?;
 
     file_map.insert(0, dockerfile_path);
@@ -238,12 +219,9 @@ async fn send_full_context(
     id_counter: &mut u32,
 ) -> Result<()> {
     if followpaths.is_empty() {
-        eprintln!("BuildKit requested full context - sending entire directory tree");
+        tracing::debug!("BuildKit requested full context - sending entire directory tree");
     } else {
-        eprintln!(
-            "BuildKit requested filtered context - followpaths: {:?}",
-            followpaths
-        );
+        tracing::debug!("BuildKit requested filtered context - followpaths: {:?}", followpaths);
     }
 
     send_stat_packets_dfs(
@@ -335,10 +313,9 @@ fn send_stat_packets_dfs<'a>(
             if let Some(ref paths) = include_paths {
                 if !paths.contains(&rel_path) {
                     tracing::debug!("Skipping {} (not in followpaths)", rel_path);
-                    eprintln!("DFS: Skipping {} (not in include_paths)", rel_path);
                     continue;
                 } else {
-                    eprintln!("DFS: Including {} (found in include_paths)", rel_path);
+                    tracing::debug!("Including {} (found in followpaths)", rel_path);
                 }
             }
 
@@ -381,9 +358,8 @@ fn send_stat_packets_dfs<'a>(
                 };
             }
 
-            let mode = stat.mode;
-            let size = stat.size;
             let path_sent = stat.path.clone();
+            let stat_mode = stat.mode;
             let stat_packet = Packet {
                 r#type: PacketType::PacketStat as i32,
                 stat: Some(stat),
@@ -395,17 +371,7 @@ fn send_stat_packets_dfs<'a>(
                 "Sending STAT packet for: {} (id: {}, mode: 0o{:o})",
                 path_sent,
                 entry_id,
-                mode
-            );
-            eprintln!(
-                "DFS: Sending STAT #{}: {} ({}, mode: 0o{:o} / 0x{:x}, size: {}, is_dir: {})",
-                entry_id,
-                path_sent,
-                if metadata.is_dir() { "DIR" } else { "FILE" },
-                mode,
-                mode,
-                size,
-                (mode & 0o040000) != 0
+                stat_mode
             );
             send_grpc_packet(stream, &stat_packet).await?;
 

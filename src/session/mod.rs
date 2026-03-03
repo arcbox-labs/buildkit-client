@@ -130,24 +130,60 @@ impl Session {
 
         // Spawn task to receive from BuildKit and forward to tunnel
         tokio::spawn(async move {
-            while let Ok(Some(msg)) = inbound.message().await {
-                if let Err(e) = inbound_tx.send(msg).await {
-                    tracing::error!("Failed to forward inbound message: {}", e);
-                    break;
+            let mut msg_count = 0u64;
+            loop {
+                match inbound.message().await {
+                    Ok(Some(msg)) => {
+                        msg_count += 1;
+                        tracing::info!(
+                            session_id = %session_id,
+                            msg_count = msg_count,
+                            data_len = msg.data.len(),
+                            "inbound: received message from BuildKit"
+                        );
+                        if let Err(e) = inbound_tx.send(msg).await {
+                            tracing::error!("Failed to forward inbound message: {}", e);
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::info!(
+                            session_id = %session_id,
+                            total_messages = msg_count,
+                            "inbound: BuildKit stream ended (None)"
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            session_id = %session_id,
+                            error = %e,
+                            total_messages = msg_count,
+                            "inbound: BuildKit stream error"
+                        );
+                        break;
+                    }
                 }
             }
-            tracing::info!("Session {} inbound ended", session_id);
         });
 
         // Spawn task to receive from tunnel and forward to BuildKit
         let tx_clone = tx.clone();
         tokio::spawn(async move {
+            let mut msg_count = 0u64;
             while let Some(msg) = outbound_rx.recv().await {
+                msg_count += 1;
+                tracing::info!(
+                    msg_count = msg_count,
+                    data_len = msg.data.len(),
+                    "outbound: forwarding message to BuildKit"
+                );
                 if let Err(e) = tx_clone.send(msg).await {
                     tracing::error!("Failed to forward outbound message: {}", e);
                     break;
                 }
             }
+            tracing::info!(total_messages = msg_count, "outbound: tunnel→BuildKit task ended");
         });
 
         // Start the HTTP/2 server in the tunnel
