@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1770669586894,
+  "lastUpdate": 1772554361908,
   "repoUrl": "https://github.com/arcbox-labs/buildkit-client",
   "entries": {
     "Benchmark": [
@@ -539,6 +539,96 @@ window.BENCHMARK_DATA = {
             "name": "build_args_insertion",
             "value": 183,
             "range": "± 0",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "z2662728664@gmail.com",
+            "name": "B1n_FreeToRoAm",
+            "username": "BreezyB1n"
+          },
+          "committer": {
+            "email": "z2662728664@gmail.com",
+            "name": "B1n_FreeToRoAm",
+            "username": "BreezyB1n"
+          },
+          "distinct": true,
+          "id": "af8426005287c7df71e8464f7289690eba9f0813",
+          "message": "fix: resolve session tunnel deadlock in MessageStream\n\nThe MessageStream implementation used Arc<Mutex> on the mpsc::Receiver\nand try_lock() in poll_read, which returned Poll::Pending without\nregistering a waker when the lock was contended. This prevented the h2\nserver from ever being woken up to read subsequent data, causing BuildKit\nto never receive DiffCopy responses through the session tunnel.\n\nChanges:\n- Remove Arc<Mutex> wrapper on inbound_rx in MessageStream (h2 takes\n  exclusive ownership, so no mutex is needed)\n- Poll the receiver directly via poll_recv(cx) which properly registers\n  the waker\n- Fix poll_write to register waker via cx.waker().wake_by_ref() when\n  the outbound channel is full\n- Replace eprintln! debug output with tracing::debug! calls\n- Add counters and tracing to forwarding tasks for diagnostics",
+          "timestamp": "2026-03-04T00:08:28+08:00",
+          "tree_id": "7b2e6df8be0451df277eefb27018dcf7183cdc3d",
+          "url": "https://github.com/arcbox-labs/buildkit-client/commit/af8426005287c7df71e8464f7289690eba9f0813"
+        },
+        "date": 1772554361556,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "platform_parse_simple",
+            "value": 71,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_parse_with_variant",
+            "value": 89,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "platform_to_string",
+            "value": 75,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_local",
+            "value": 124,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_github",
+            "value": 128,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_config_full_chain",
+            "value": 530,
+            "range": "± 5",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_creation",
+            "value": 1622,
+            "range": "± 4",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "session_metadata_generation",
+            "value": 558,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_local",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "dockerfile_source_match_github",
+            "value": 0,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "build_args_insertion",
+            "value": 183,
+            "range": "± 2",
             "unit": "ns/iter"
           }
         ]
